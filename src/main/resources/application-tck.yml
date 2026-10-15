@@ -1,0 +1,6 @@
+# Profile for the official A2A TCK: the TCK sends its own scenario messages and no bearer token,
+# so the card pipeline's executor is replaced by the TCK scenario executor and auth is off.
+app:
+  a2a:
+    auth:
+      required: false

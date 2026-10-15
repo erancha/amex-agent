@@ -1,0 +1,67 @@
+server:
+  port: ${SERVER_PORT:8020}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+
+logging:
+  level:
+    com.erancha: ${LOG_LEVEL:INFO}
+    org.a2aproject.sdk: ${A2A_LOG_LEVEL:WARN}
+    # The card site's statement fonts lack a PostScript name, which only matters for rendering;
+    # PDFBox warns about it on every parse.
+    org.apache.fontbox.ttf.PostScriptTable: ERROR
+
+spring:
+  # The statements page uploads one statement PDF at a time; a real one is about 0.5 MB.
+  # Parsing is lazy so an oversized upload reaches the statements endpoint's error handling.
+  servlet:
+    multipart:
+      max-file-size: 5MB
+      max-request-size: 5MB
+      resolve-lazily: true
+  ai:
+    # Selects which provider's ChatModel auto-configuration loads; application-e2e.yml turns it off.
+    model:
+      chat: ${APP_LLM_PROVIDER}
+      # The agent uses chat only, so every other model type stays off.
+      embedding: none
+      image: none
+      moderation: none
+      audio:
+        speech: none
+        transcription: none
+    anthropic:
+      api-key: ${ANTHROPIC_API_KEY:}
+      chat:
+        options:
+          model: ${APP_LLM_MODEL:}
+          # Claude's reasoning tokens share this budget with the JSON answer; one batch of merchants
+          # can need most of Spring AI's 4096 default before the answer starts.
+          max-tokens: 16384
+    openai:
+      api-key: ${OPENAI_API_KEY:}
+      chat:
+        options:
+          model: ${APP_LLM_MODEL:}
+
+app:
+  agent:
+    url: ${APP_AGENT_URL:http://localhost:${SERVER_PORT:8020}}
+    version: @project.version@
+  statements:
+    dir: ${APP_STATEMENTS_DIR}
+  a2a:
+    auth:
+      required: ${APP_A2A_AUTH_REQUIRED:true}
+      token: ${APP_A2A_TOKEN:}
+  llm:
+    provider: ${APP_LLM_PROVIDER}
+    model: ${APP_LLM_MODEL:}
+  categorizer:
+    high-confidence: ${APP_CATEGORIZER_HIGH_CONFIDENCE:0.85}
+    medium-confidence: ${APP_CATEGORIZER_MEDIUM_CONFIDENCE:0.6}
+    batch-size: ${APP_CATEGORIZER_BATCH_SIZE:40}

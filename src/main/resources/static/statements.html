@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>amex-agent statements</title>
+<link rel="icon" href="data:,">
+<style>
+  :root {
+    --bg: #f7f7f5; --fg: #1d1d1b; --muted: #6b6b66; --line: #dcdcd6; --panel: #ffffff;
+    --accent: #1f5fbf; --ok: #1d7a3a; --err: #b3261e;
+    color-scheme: light dark;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #161615; --fg: #ececea; --muted: #9a9a94; --line: #34342f; --panel: #1f1f1d;
+      --accent: #7fa8f0; --ok: #6cc28a; --err: #f08a80;
+    }
+  }
+  body { margin: 0; background: var(--bg); color: var(--fg);
+    font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 640px; margin: 0 auto; padding: 32px 16px; }
+  h1 { font-size: 1.4rem; margin: 0 0 4px; }
+  p.lead { margin: 0 0 24px; color: var(--muted); }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+    padding: 16px; margin-bottom: 16px; }
+  h2 { font-size: 1rem; margin: 0 0 12px; }
+  label { display: block; font-size: 0.85rem; color: var(--muted); margin-bottom: 4px; }
+  input[type=password], input[type=file] { width: 100%; box-sizing: border-box; font: inherit; }
+  input[type=password] { padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px;
+    background: var(--bg); color: var(--fg); }
+  .row { display: flex; gap: 8px; align-items: center; margin-top: 12px; flex-wrap: wrap; }
+  button { font: inherit; padding: 6px 14px; border-radius: 6px; border: 1px solid var(--accent);
+    background: var(--accent); color: var(--panel); cursor: pointer; }
+  button:disabled { opacity: 0.5; cursor: default; }
+  #status { min-height: 1.5em; margin: 8px 0 0; }
+  #status.ok { color: var(--ok); }
+  #status.err { color: var(--err); }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 6px 4px; border-bottom: 1px solid var(--line); }
+  th { font-size: 0.85rem; color: var(--muted); font-weight: 500; }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  td.actions { width: 1%; text-align: right; }
+  button.icon { display: inline-flex; padding: 4px; border-color: transparent;
+    background: transparent; color: var(--muted); }
+  button.icon:hover:not(:disabled) { color: var(--err); border-color: var(--line); }
+  button.icon svg { width: 16px; height: 16px; }
+  .hint { font-size: 0.85rem; color: var(--muted); margin: 8px 0 0; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Statements</h1>
+  <p class="lead">Load American Express Israel statement PDFs into the folder amex-agent reads, or
+    delete one from it.</p>
+
+  <section>
+    <h2>Load a statement</h2>
+    <label for="file">
+      Statement PDF (any file name; it is stored as YYYY-MM.pdf for its billing month)
+    </label>
+    <input id="file" type="file" accept="application/pdf,.pdf">
+    <div class="row"><button id="upload" type="button">Load</button></div>
+    <p id="status" role="status"></p>
+  </section>
+
+  <section>
+    <h2>Loaded statements</h2>
+    <table>
+      <thead><tr><th>File</th><th>Size</th><th>Modified</th><th></th></tr></thead>
+      <tbody id="statements"></tbody>
+    </table>
+    <p class="hint" id="empty" hidden>No statements loaded.</p>
+  </section>
+</main>
+<script>
+  const API = "/api/statements";
+  const file = document.getElementById("file");
+  const upload = document.getElementById("upload");
+  const status = document.getElementById("status");
+
+  function show(message, kind) {
+    status.textContent = message;
+    status.className = kind;
+  }
+
+  async function failure(response) {
+    const type = response.headers.get("Content-Type") ?? "";
+    if (type.includes("json")) {
+      const problem = await response.json();
+      if (problem.detail) {
+        return problem.detail;
+      }
+    }
+    return "HTTP " + response.status + "; see the agent log.";
+  }
+
+  async function refresh() {
+    const response = await fetch(API);
+    if (!response.ok) {
+      show(await failure(response), "err");
+      return;
+    }
+    render(await response.json());
+  }
+
+  function render(statements) {
+    const body = document.getElementById("statements");
+    body.replaceChildren(...statements.map(s => {
+      const tr = document.createElement("tr");
+      for (const [text, cls] of [
+          [s.fileName, ""],
+          [(s.sizeBytes / 1024).toFixed(0) + " KB", "num"],
+          [new Date(s.modified).toLocaleString(), ""]]) {
+        const td = document.createElement("td");
+        td.textContent = text;
+        td.className = cls;
+        tr.append(td);
+      }
+      const actions = document.createElement("td");
+      actions.className = "actions";
+      actions.append(deleteButton(s.fileName));
+      tr.append(actions);
+      return tr;
+    }));
+    document.getElementById("empty").hidden = statements.length > 0;
+  }
+
+  const TRASH_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"'
+      + ' stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+      + '<path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v6M14 11v6"/></svg>';
+
+  function deleteButton(fileName) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "icon";
+    button.title = "Delete " + fileName;
+    button.setAttribute("aria-label", button.title);
+    button.innerHTML = TRASH_ICON;
+    button.addEventListener("click", async () => {
+      if (!confirm("Delete " + fileName + " from the statements folder?")) {
+        return;
+      }
+      button.disabled = true;
+      try {
+        const url = API + "/" + encodeURIComponent(fileName);
+        const response = await fetch(url, { method: "DELETE" });
+        if (!response.ok) {
+          show(await failure(response), "err");
+          return;
+        }
+        show("Deleted " + fileName + ".", "ok");
+        await refresh();
+      } catch (e) {
+        show("The agent did not answer: " + e.message, "err");
+      } finally {
+        button.disabled = false;
+      }
+    });
+    return button;
+  }
+
+  upload.addEventListener("click", async () => {
+    const chosen = file.files[0];
+    if (!chosen) {
+      show("Choose a statement PDF first.", "err");
+      return;
+    }
+    const form = new FormData();
+    form.append("file", chosen);
+    upload.disabled = true;
+    show("Loading " + chosen.name + "...", "");
+    try {
+      const response = await fetch(API, { method: "POST", body: form });
+      if (!response.ok) {
+        show(await failure(response), "err");
+        return;
+      }
+      const stored = await response.json();
+      show("Loaded " + stored.fileName + ".", "ok");
+      file.value = "";
+      await refresh();
+    } catch (e) {
+      show("The agent did not answer: " + e.message, "err");
+    } finally {
+      upload.disabled = false;
+    }
+  });
+
+  refresh();
+</script>
+</body>
+</html>

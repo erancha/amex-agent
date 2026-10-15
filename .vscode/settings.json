@@ -1,0 +1,4 @@
+{
+  "git.ignoredRepositories": [".tck"],
+  "git.repositoryScanIgnoredFolders": ["node_modules", ".tck"]
+}

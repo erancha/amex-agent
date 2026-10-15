@@ -1,0 +1,14 @@
+root = true
+
+[*]
+charset = utf-8
+indent_style = space
+end_of_line = lf
+insert_final_newline = true
+
+[*.java]
+indent_size = 2
+max_line_length = 100
+
+[*.{xml,json,yml,yaml,md,py,sh}]
+indent_size = 2

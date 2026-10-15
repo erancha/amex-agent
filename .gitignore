@@ -1,0 +1,18 @@
+target/
+.venv/
+.validate-venv/
+.tck/
+node_modules/
+__pycache__/
+*.pyc
+.env
+.env.*
+!.env.example
+.claude/
+CLAUDE.local.md
+docs/superpowers/
+.superpowers/
+
+# Card statements are private and stay local; the folder itself is tracked.
+statements/*
+!statements/.gitkeep

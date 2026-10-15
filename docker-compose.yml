@@ -1,0 +1,28 @@
+services:
+  # The card agent, reading statements from the folder named in .env (APP_STATEMENTS_DIR). The
+  # statements page writes uploads into that folder, so the mount is writable and the process runs
+  # as the host user who owns it (scripts/common.sh exports HOST_UID and HOST_GID).
+  amex-agent:
+    build: .
+    image: amex-agent:local
+    user: "${HOST_UID:?run through scripts/start.sh}:${HOST_GID:?run through scripts/start.sh}"
+    deploy:
+      resources:
+        limits:
+          memory: 768M
+    env_file:
+      - path: ./.env
+        required: true
+    # The container side is fixed; SERVER_PORT from .env only picks the host port.
+    environment:
+      SERVER_PORT: 8020
+      APP_STATEMENTS_DIR: /statements
+    volumes:
+      - ${APP_STATEMENTS_DIR:?set APP_STATEMENTS_DIR in .env}:/statements
+    ports:
+      - "${SERVER_PORT:-8020}:8020"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost:8020/actuator/health || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20

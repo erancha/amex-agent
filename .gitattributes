@@ -1,0 +1,5 @@
+# Built and run from WSL: every text file is LF in the repo and on checkout; shell scripts
+# especially, because CRLF makes the kernel fail to find the interpreter.
+* text=auto eol=lf
+*.sh text eol=lf
+*.xlsx binary
