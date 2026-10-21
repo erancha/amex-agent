@@ -5,6 +5,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeMap;
 import org.a2aproject.sdk.common.A2AHeaders;
 import org.a2aproject.sdk.server.ServerCallContext;
 import org.a2aproject.sdk.server.auth.UnauthenticatedUser;
@@ -13,21 +14,29 @@ import org.a2aproject.sdk.spec.TransportProtocol;
 import org.a2aproject.sdk.transport.jsonrpc.context.JSONRPCContextKeys;
 
 /**
- * Builds the SDK's per-request context from a servlet request: every header, the tenant taken
+ * Builds the SDK's per-request context from a servlet request: every header (looked up without
+ * regard to case, as HTTP defines them), the caller the secret filter admitted, the tenant taken
  * from the request path, the JSON-RPC transport marker, the requested extensions and the
- * requested protocol version. The user is always unauthenticated because access control is the
- * bearer token at the HTTP edge, not the SDK's per-user task ownership.
+ * requested protocol version. The SDK user stays unauthenticated: the executor resolves the
+ * person from the forwarded token itself and binds a waiting task to that person.
  */
-final class CallContexts {
+public final class CallContexts {
+  /** State key of the admitted Caller; absent when authentication is off. */
+  public static final String CALLER_KEY = "caller";
+
   private CallContexts() {}
 
   static ServerCallContext from(HttpServletRequest request) {
-    Map<String, String> headers = new HashMap<>();
+    Map<String, String> headers = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
     for (String name : Collections.list(request.getHeaderNames())) {
       headers.put(name, request.getHeader(name));
     }
     Map<String, Object> state = new HashMap<>();
     state.put(JSONRPCContextKeys.HEADERS_KEY, headers);
+    Object caller = request.getAttribute(CallerSecretFilter.CALLER);
+    if (caller != null) {
+      state.put(CALLER_KEY, caller);
+    }
     state.put(JSONRPCContextKeys.TENANT_KEY, tenant(request.getRequestURI()));
     state.put(ServerCallContext.TRANSPORT_KEY, TransportProtocol.JSONRPC);
     Set<String> extensions = A2AExtensions.getRequestedExtensions(

@@ -18,7 +18,7 @@ jobs:
       - name: Unit and integration tests
         run: bash scripts/test.sh all
       - name: Script tests
-        run: bash scripts/tests/test_load_env.sh
+        run: for t in scripts/tests/test_*.sh; do bash "$t"; done
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"

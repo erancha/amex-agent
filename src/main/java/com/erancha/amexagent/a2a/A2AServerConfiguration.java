@@ -1,5 +1,8 @@
 package com.erancha.amexagent.a2a;
 
+import com.erancha.amexagent.auth.Callers;
+import com.erancha.amexagent.auth.UserResolver;
+import com.erancha.amexagent.auth.Users;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
@@ -26,8 +29,8 @@ import org.springframework.context.annotation.Configuration;
 /**
  * Wires the a2a-java server library as Spring beans: the in-memory task store, the queue manager
  * (which closes streams when a task waits for input), the main event bus and its processor
- * thread, the two a2a thread pools, and the JSON-RPC handler (wrapping the SDK's default request
- * handler) that the endpoints delegate to.
+ * thread, the two a2a thread pools, the caller-secret filter and the JSON-RPC handler (wrapping
+ * the SDK's default request handler) that the endpoints delegate to.
  */
 @Configuration
 public class A2AServerConfiguration {
@@ -59,8 +62,13 @@ public class A2AServerConfiguration {
   @Bean
   @ConditionalOnProperty(name = "app.a2a.auth.required", havingValue = "true",
       matchIfMissing = true)
-  public BearerTokenFilter bearerTokenFilter(A2AProperties props) {
-    return new BearerTokenFilter(props.a2a().auth().token());
+  public CallerSecretFilter callerSecretFilter(Callers callers) {
+    return new CallerSecretFilter(callers);
+  }
+
+  @Bean
+  public UserResolver userResolver(Users users) {
+    return new CallContextUsers(users);
   }
 
   /**
@@ -99,8 +107,9 @@ public class A2AServerConfiguration {
         .mainEventBusProcessor(processor)
         .executor(internal)
         .eventConsumerExecutor(eventConsumer)
-        // Access control is the bearer token at the HTTP edge; the SDK's per-task ownership
-        // layer stays off so there is one gate, not two.
+        // Callers are admitted by CallerSecretFilter and the person is checked by the executor,
+        // which also binds a waiting task to its person; the SDK's ownership layer stays off so
+        // there is one set of rules, not two.
         .authorizationRequired(false)
         .pushNotificationsEnabled(false)
         .build();

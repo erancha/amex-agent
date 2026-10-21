@@ -2,8 +2,6 @@ package com.erancha.amexagent.card.infra;
 
 import com.erancha.amexagent.card.api.Statement;
 import com.erancha.amexagent.card.api.StatementRejectedException;
-import com.erancha.amexagent.card.api.StatementSource;
-import com.erancha.amexagent.card.api.StatementStore;
 import com.erancha.amexagent.card.api.StoredStatement;
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -33,6 +31,8 @@ import org.slf4j.LoggerFactory;
  * has a parser is a statement, except Excel's ~$ lock files; a file that fails to parse fails the
  * lookup naming it. Every lookup rescans the directory so a file dropped in while a task waits for
  * input is found on the next request; a file is re-parsed only when its modification time changes.
+ * The directory is one person's and may not exist yet: it holds nothing until the first upload
+ * creates it.
  *
  * Loading a statement stages the upload under a name no parser claims, parses it, and renames it
  * to the download name of the billing month its content declares, whatever the upload was called,
@@ -40,7 +40,7 @@ import org.slf4j.LoggerFactory;
  * never sees a half-written or unreadable upload. Removing accepts only a name list() returns, so
  * the caller's name never reaches outside the folder or a file that is not a statement.
  */
-public class StatementFolder implements StatementSource, StatementStore {
+public class StatementFolder {
   private static final Logger log = LoggerFactory.getLogger(StatementFolder.class);
   // The card site's download names: <YYYY>-<MM>.pdf for a statement, <last4>_<MM>_<YYYY>.xlsx for
   // an export. Either shape is checked against the content whatever its extension.
@@ -63,21 +63,22 @@ public class StatementFolder implements StatementSource, StatementStore {
   private final Map<Path, Parsed> cache = new HashMap<>();
 
   public StatementFolder(Path dir, Map<String, StatementParser> parsers) {
-    if (!Files.isDirectory(dir)) {
+    if (Files.exists(dir) && !Files.isDirectory(dir)) {
       throw new IllegalArgumentException("Statements folder is not a directory: " + dir);
     }
     this.dir = dir;
     this.parsers = Map.copyOf(parsers);
   }
 
-  @Override
   public synchronized Optional<Statement> forMonth(YearMonth month) {
     return Optional.ofNullable(index().get(month)).map(Indexed::statement);
   }
 
-  @Override
   public synchronized List<StoredStatement> list() {
     List<StoredStatement> stored = new ArrayList<>();
+    if (!Files.isDirectory(dir)) {
+      return stored;
+    }
     try (DirectoryStream<Path> files = Files.newDirectoryStream(dir, this::isStatement)) {
       for (Path file : files) {
         stored.add(stored(file));
@@ -89,13 +90,13 @@ public class StatementFolder implements StatementSource, StatementStore {
     return stored;
   }
 
-  @Override
   public synchronized StoredStatement add(String fileName, byte[] content) {
     if (!startsWith(content, PDF_SIGNATURE)) {
       throw new StatementRejectedException(fileName + " is not a PDF file");
     }
     Path staged = null;
     try {
+      Files.createDirectories(dir);
       staged = Files.createTempFile(dir, ".upload-", ".part");
       Files.write(staged, content);
       YearMonth month = uploadedStatement(fileName, staged).billingMonth();
@@ -116,7 +117,6 @@ public class StatementFolder implements StatementSource, StatementStore {
     }
   }
 
-  @Override
   public synchronized void remove(String fileName) {
     if (list().stream().noneMatch(s -> s.fileName().equals(fileName))) {
       throw new StatementRejectedException(fileName + " is not a loaded statement");
@@ -134,6 +134,9 @@ public class StatementFolder implements StatementSource, StatementStore {
 
   private Map<YearMonth, Indexed> index() {
     Map<YearMonth, Indexed> byMonth = new HashMap<>();
+    if (!Files.isDirectory(dir)) {
+      return byMonth;
+    }
     try (DirectoryStream<Path> files = Files.newDirectoryStream(dir, this::isStatement)) {
       for (Path file : files) {
         Statement statement = parsed(file).statement();

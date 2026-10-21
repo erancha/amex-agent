@@ -14,7 +14,7 @@ import org.springframework.http.MediaType;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.web.client.RestClient;
 
-/** Boots the tck profile: scenario executor wired in, no bearer filter, unauthenticated calls. */
+/** Boots the tck profile: scenario executor wired in, no caller filter, unauthenticated calls. */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
     "APP_STATEMENTS_DIR=src/test/resources/statements"})
 @ActiveProfiles({"tck", E2E_PROFILE})
@@ -25,7 +25,7 @@ class TckProfileTest {
   @Test
   void tckProfile_usesScenarioExecutorWithoutAuth() {
     assertThat(context.getBean(AgentExecutor.class)).isInstanceOf(TckAgentExecutor.class);
-    assertThat(context.containsBean("bearerTokenFilter")).isFalse();
+    assertThat(context.containsBean("callerSecretFilter")).isFalse();
 
     String body = RestClient.create("http://localhost:" + port).post().uri("/")
         .contentType(MediaType.APPLICATION_JSON)

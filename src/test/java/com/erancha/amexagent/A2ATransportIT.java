@@ -4,7 +4,13 @@ import static com.erancha.amexagent.card.infra.LlmConfiguration.E2E_PROFILE;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.erancha.amexagent.a2a.CallerSecretFilter;
+import com.erancha.amexagent.auth.TestTokens;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -31,26 +37,44 @@ import org.a2aproject.sdk.spec.TaskStatusUpdateEvent;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
 
 /**
- * Drives the running agent with the SDK's Java client over real HTTP: card fetch, a streaming task
- * for the committed sample month to completion, a missing month to input-required, its resume and
- * cancel, cancel on a final task, and the two rejection paths (wrong token, wrong params). The
- * e2e profile categorizes with the keyword table, so no API key is needed. The server runs on a
- * fixed port because the card advertises the URL the client must call.
+ * Drives the running agent with the SDK's Java client over real HTTP as a registered caller acting
+ * for one person: card fetch, a streaming task for the committed sample month to completion, a
+ * missing month to input-required, its resume and cancel, cancel on a final task, a call without
+ * the person's token to auth-required, and the two rejection paths (wrong secret, wrong params).
+ * The e2e profile categorizes with the keyword table, so no API key is needed. The server runs on
+ * a fixed port because the card advertises the URL the client must call.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.DEFINED_PORT, properties = {
-    "APP_STATEMENTS_DIR=src/test/resources/statements",
-    "APP_A2A_TOKEN=" + A2ATransportIT.TOKEN, "SERVER_PORT=" + A2ATransportIT.PORT,
-    "APP_AGENT_URL=" + A2ATransportIT.BASE_URL})
+    "SERVER_PORT=" + A2ATransportIT.PORT, "APP_AGENT_URL=" + A2ATransportIT.BASE_URL})
 @ActiveProfiles(E2E_PROFILE)
 class A2ATransportIT {
   static final String PORT = "18020";
   static final String BASE_URL = "http://localhost:" + PORT;
-  static final String TOKEN = "it-token";
+  private static final ClientCallContext PERSON = credentials(TestTokens.CALLER_SECRET,
+      TestTokens.callerToken(TestTokens.SUB));
 
-  private static ClientCallContext bearer(String token) {
-    return new ClientCallContext(Map.of(), Map.of("Authorization", "Bearer " + token));
+  /** The person's statement sits in their own folder under the statements root. */
+  @DynamicPropertySource
+  static void statementsAndAuth(DynamicPropertyRegistry registry) throws IOException {
+    Path root = Files.createTempDirectory("it-statements");
+    Files.createDirectories(root.resolve(TestTokens.SUB));
+    Files.copy(Path.of("src/test/resources/statements/2026-10.pdf"),
+        root.resolve(TestTokens.SUB).resolve("2026-10.pdf"));
+    registry.add("APP_STATEMENTS_DIR", root::toString);
+    TestTokens.register(registry);
+  }
+
+  private static ClientCallContext credentials(String secret, String idToken) {
+    Map<String, String> headers = new HashMap<>();
+    headers.put(CallerSecretFilter.HEADER, secret);
+    if (idToken != null) {
+      headers.put("Authorization", "Bearer " + idToken);
+    }
+    return new ClientCallContext(Map.of(), headers);
   }
 
   private static Client client() throws Exception {
@@ -62,7 +86,8 @@ class A2ATransportIT {
 
   private record Captured(List<ClientEvent> events, Throwable error) {}
 
-  private static Captured send(Client client, Message message, String token) throws Exception {
+  private static Captured send(Client client, Message message, ClientCallContext credentials)
+      throws Exception {
     List<ClientEvent> events = new ArrayList<>();
     AtomicReference<Throwable> error = new AtomicReference<>();
     CountDownLatch done = new CountDownLatch(1);
@@ -78,7 +103,7 @@ class A2ATransportIT {
     }), t -> {
       error.set(t);
       done.countDown();
-    }, bearer(token));
+    }, credentials);
     assertThat(done.await(30, TimeUnit.SECONDS)).as("stream finished").isTrue();
     return new Captured(events, error.get());
   }
@@ -116,7 +141,7 @@ class A2ATransportIT {
   @Test
   void streamingTask_coveredMonth_completesWithOneArtifactOfAllRows() throws Exception {
     try (Client client = client()) {
-      Captured c = send(client, monthRequest("2026-10"), TOKEN);
+      Captured c = send(client, monthRequest("2026-10"), PERSON);
       assertThat(c.error()).isNull();
       List<TaskState> states = statuses(c).stream().map(s -> s.status().state()).toList();
       assertThat(states).contains(TaskState.TASK_STATE_WORKING, TaskState.TASK_STATE_COMPLETED);
@@ -127,7 +152,7 @@ class A2ATransportIT {
 
       String completedTaskId = lastStatus(c).taskId();
       assertThatThrownBy(() -> client.cancelTask(new CancelTaskParams(completedTaskId),
-          bearer(TOKEN))).hasMessageContaining("Task cannot be canceled");
+          PERSON)).hasMessageContaining("Task cannot be canceled");
     }
   }
 
@@ -135,29 +160,52 @@ class A2ATransportIT {
   void streamingTask_missingMonth_asksForInputThenAsksAgainOnContinueThenCancels()
       throws Exception {
     try (Client client = client()) {
-      Captured first = send(client, monthRequest("2026-09"), TOKEN);
+      Captured first = send(client, monthRequest("2026-09"), PERSON);
       TaskStatusUpdateEvent waiting = lastStatus(first);
       assertThat(waiting.status().state()).isEqualTo(TaskState.TASK_STATE_INPUT_REQUIRED);
+      @SuppressWarnings("unchecked")
+      Map<String, Object> pause = (Map<String, Object>)
+          ((DataPart) waiting.status().message().parts().get(1)).data();
+      assertThat(pause).containsEntry("reason", "statement-missing")
+          .containsEntry("user", TestTokens.SUB);
 
       Message resume = Message.builder().role(Message.Role.ROLE_USER).messageId("resume-1")
           .taskId(waiting.taskId()).contextId(waiting.contextId())
           .parts(List.of(new DataPart(Map.of("action", "continue")))).build();
-      Captured second = send(client, resume, TOKEN);
+      Captured second = send(client, resume, PERSON);
       assertThat(lastStatus(second).status().state())
           .isEqualTo(TaskState.TASK_STATE_INPUT_REQUIRED);
 
-      assertThat(client.cancelTask(new CancelTaskParams(waiting.taskId()), bearer(TOKEN))
+      assertThat(client.cancelTask(new CancelTaskParams(waiting.taskId()), PERSON)
           .status().state()).isEqualTo(TaskState.TASK_STATE_CANCELED);
     }
   }
 
   @Test
-  void wrongToken_isRejected() throws Exception {
+  void wrongSecret_isRejectedWith401() throws Exception {
     try (Client client = client()) {
-      Captured c = send(client, monthRequest("2026-10"), "wrong");
+      Captured c = send(client, monthRequest("2026-10"),
+          credentials("wrong", TestTokens.callerToken(TestTokens.SUB)));
       assertThat(c.error()).isNotNull();
       assertThat(c.error().getCause()).isInstanceOfSatisfying(A2AClientHTTPError.class,
           e -> assertThat(e.getCode()).isEqualTo(401));
+    }
+  }
+
+  @Test
+  void callWithoutThePersonsToken_endsInAuthRequired() throws Exception {
+    try (Client client = client()) {
+      Captured c = send(client, monthRequest("2026-10"),
+          credentials(TestTokens.CALLER_SECRET, null));
+      assertThat(c.error()).isNull();
+      TaskStatusUpdateEvent last = lastStatus(c);
+      assertThat(last.status().state()).isEqualTo(TaskState.TASK_STATE_AUTH_REQUIRED);
+      @SuppressWarnings("unchecked")
+      Map<String, Object> pause = (Map<String, Object>)
+          ((DataPart) last.status().message().parts().get(1)).data();
+      assertThat(pause).containsEntry("reason", "sign-in-required")
+          .containsEntry("month", "2026-10").containsEntry("user", "");
+      assertThat(updates(c, TaskArtifactUpdateEvent.class)).isEmpty();
     }
   }
 
@@ -166,7 +214,7 @@ class A2ATransportIT {
     try (Client client = client()) {
       Message bad = Message.builder().role(Message.Role.ROLE_USER).messageId("bad")
           .parts(List.of(new DataPart(Map.of("month", "09/2026")))).build();
-      Captured c = send(client, bad, TOKEN);
+      Captured c = send(client, bad, PERSON);
       assertThat(c.error()).isNotNull();
       assertThat(c.error().getMessage()).containsIgnoringCase("month");
     }

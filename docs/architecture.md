@@ -7,8 +7,8 @@ this file explains how the code delivers it.
 
 **Contents:** [Components](#components) · [Request flow](#request-flow) ·
 [Why a hand-written Spring transport](#why-a-hand-written-spring-transport) ·
-[Threading](#threading) · [Configuration](#configuration) · [Providers](#providers) ·
-[Statement folder and layout](#statement-folder-and-layout) ·
+[Threading](#threading) · [Configuration](#configuration) · [Who is calling](#who-is-calling) ·
+[Providers](#providers) · [Statement folders and layout](#statement-folders-and-layout) ·
 [Statements page](#statements-page) · [Categorizer](#categorizer) ·
 [Library behavior](#library-behavior)
 
@@ -20,22 +20,25 @@ Packages under `src/main/java/com/erancha/amexagent/`:
 |---|---|---|
 | `a2a` | `A2AEndpoint` | `POST /` for every JSON-RPC method: parses the body with the SDK's `JSONRPCUtils`, dispatches over the SDK's sealed request types with an exhaustive `switch`, writes one JSON document or hands a stream to `SseStreamWriter`. A non-JSON content type gets `ContentTypeNotSupportedError` (-32005). |
 | `a2a` | `SseStreamWriter` | Subscribes to the handler's event publisher on the request thread, writes and flushes one SSE frame per event, and releases the thread on any failure. |
-| `a2a` | `AgentCardEndpoint`, `AgentCardConfiguration` | Serve the public card at `/.well-known/agent-card.json`, built from `app.agent.*` and `app.a2a.auth.*`. |
-| `a2a` | `A2AServerConfiguration` | Wires the SDK as Spring beans: in-memory task store, queue manager, main event bus and its processor, the two a2a thread pools, and the `JSONRPCHandler`. |
+| `a2a` | `AgentCardEndpoint`, `AgentCardConfiguration` | Serve the public card at `/.well-known/agent-card.json`, built from `app.agent.*` and `app.a2a.auth.*`; with auth on it requires the person's Google ID token (OpenID Connect scheme) and the caller's secret (API key scheme) together. |
+| `a2a` | `A2AServerConfiguration` | Wires the SDK as Spring beans: in-memory task store, queue manager, main event bus and its processor, the two a2a thread pools, the caller-secret filter, the user resolver and the `JSONRPCHandler`. |
 | `a2a` | `InterruptedStateStreamHook` | A `TaskStreamLifecycleHook` that closes a task's open streams once the task enters an interrupted state such as input-required. |
-| `a2a` | `BearerTokenFilter` | Servlet filter for the bearer token, registered only when auth is required. |
-| `a2a` | `CallContexts`, `JsonRpcResponses` | Build the SDK's per-request context from the servlet request; serialize non-streaming responses to wire JSON. |
+| `a2a` | `CallerSecretFilter` | Servlet filter admitting a request whose `X-Caller-Secret` names a registered caller, attached to the request for the executor; registered only when auth is required. |
+| `a2a` | `CallContexts`, `CallContextUsers`, `JsonRpcResponses` | Build the SDK's per-request context from the servlet request (headers, admitted caller, tenant); resolve the person of an A2A request from that context; serialize non-streaming responses to wire JSON. |
+| `auth` | `GoogleTokenVerifier`, `VerifiedUser`, `InvalidTokenException` | Verify a Google ID token (signature against the issuer's keys, issuer, expiry, audience) into the person it names, or a refusal in words for that person. |
+| `auth` | `Users`, `UserResolver`, `Caller`, `Callers`, `UserIds` | Which client id a request's token is checked against (the page's own, or the admitted caller's), the registered callers looked up by secret in constant time, and the rule that admits a Google account id as a folder name. |
+| `auth` | `AuthProperties`, `AuthConfiguration` | The `app.auth.*` settings and the beans built from them and from the callers list. |
 | `a2a` | `SpringJsonRpcTransportMetadata` | ServiceLoader provider (`META-INF/services/org.a2aproject.sdk.server.TransportMetadata`) so the SDK's card validation accepts the JSONRPC interface. |
 | `a2a` | `A2AProperties` | The `app.*` configuration tree apart from `app.llm`; its record constructors reject invalid required settings at startup. |
-| `card/api` | `Transaction`, `Installment`, `Statement`, `Category`, `Confidence`, `MerchantCategory`, `StatementSource`, `MerchantClassifier` | Domain records, the taxonomy, and the two ports the pipeline depends on. |
-| `card/application` | `TransactionsAgentExecutor` | The SDK `AgentExecutor` for the skill: drives submitted, working, artifact chunks, completed, or input-required, and the `continue` resume. |
+| `card/api` | `Transaction`, `Installment`, `Statement`, `Category`, `Confidence`, `MerchantCategory`, `StatementSource`, `MerchantClassifier` | Domain records, the taxonomy, and the two ports the pipeline depends on; every statement port takes the person's id. |
+| `card/application` | `TransactionsAgentExecutor` | The SDK `AgentExecutor` for the skill: names the person from the forwarded token, then drives submitted, working, artifact chunks, completed, or one of the two pauses (input-required, auth-required) and the `continue` resume by the same person. |
 | `card/application` | `MonthRequest`, `TransactionsService`, `ArtifactMapper` | Validate the request, run the use case, shape transactions into 25-row artifact data parts. |
 | `card/application` | `MerchantCategorizer`, `MerchantNormalizer` | Cached, batched categorization keyed by a normalized merchant string. |
-| `card/infra` | `StatementFolder`, `StatementParser`, `PdfTextLines`, `PdfStatementParser`, `PdfStatementLayout`, `ExcelStatementParser`, `ExcelStatementLayout`, `HebrewMonths`, `StatementCurrency`, `StatementFormatException` | Index the statement files in a folder by billing month, parse the Amex Israel PDF statement or Excel export, and load a checked upload into the folder. |
-| `card/infra` | `SpringAiMerchantClassifier`, `KeywordMerchantClassifier`, `LlmConfiguration`, `LlmProperties` | The two classifier implementations, the choice between them by Spring profile, and the `app.llm` settings. |
+| `card/infra` | `StatementFolders`, `StatementFolder`, `StatementParser`, `PdfTextLines`, `PdfStatementParser`, `PdfStatementLayout`, `ExcelStatementParser`, `ExcelStatementLayout`, `HebrewMonths`, `StatementCurrency`, `StatementFormatException` | One folder per person under the statements root; index a folder's statement files by billing month, parse the Amex Israel PDF statement or Excel export, and load a checked upload into the person's folder. |
+| `card/infra` | `SpringAiMerchantClassifier`, `KeywordMerchantClassifier`, `LlmConfiguration`, `LlmProperties`, `LlmModelEnvironmentPostProcessor` | The two classifier implementations, the choice between them by Spring profile, the `app.llm` settings, and the split of `APP_LLM_MODEL` into provider and model before auto-configuration. |
 | `card/api` | `StatementStore`, `StoredStatement`, `StatementRejectedException` | The port the statements page loads and deletes files through, and its refusal. |
-| `card` | `CardConfiguration` | Assembles the pipeline; its executor bean is inactive under the `tck` profile. `StatementFolder` is both the `StatementSource` and the `StatementStore`. |
-| `statements` | `StatementsEndpoint`, `static/statements.html` | The statements page and its API: list the loaded files, load one more, delete one. |
+| `card` | `CardConfiguration` | Assembles the pipeline; its executor bean is inactive under the `tck` profile. `StatementFolders` is both the `StatementSource` and the `StatementStore`. |
+| `statements` | `StatementsEndpoint`, `AuthConfigEndpoint`, `static/statements.html` | The statements page and its API: sign in with Google, list the person's loaded files, load one more, delete one; `/api/auth/config` tells the page which Google client to sign in with. |
 | `tck` | `TckAgentExecutor` | The conformance suite's scenario executor, active only under the `tck` profile. |
 
 ## Request flow
@@ -53,13 +56,16 @@ sequenceDiagram
   participant Q as EventQueue
   participant S as SseStreamWriter
 
-  C->>E: POST / SendStreamingMessage {"month": "2026-10"}
+  C->>E: POST / SendStreamingMessage {"month": "2026-10"}<br/>Authorization: Bearer ID token, X-Caller-Secret
+  Note over E: CallerSecretFilter admits the caller
   E->>J: onMessageSendStream
   J->>D: start task
   D-)X: execute (agent pool)
   E->>S: write(publisher) on the request thread
-  X->>Q: SUBMITTED, WORKING
-  X->>F: forMonth(2026-10)
+  X->>Q: SUBMITTED
+  Note over X: verify the token against the caller's client id<br/>(or AUTH_REQUIRED)
+  X->>Q: WORKING
+  X->>F: forMonth(person, 2026-10)
   F-->>X: parsed statement
   X->>M: categorize(transactions)
   M->>L: classify(unseen merchants, in batches)
@@ -88,7 +94,9 @@ Rules the transport keeps:
 - `DefaultRequestHandler` is built inside the `jsonRpcHandler` bean rather than exposed as a bean:
   it carries CDI injection annotations that Spring would honour, autowiring a config provider that
   does not exist here and overwriting the builder's settings.
-- The SDK's per-task authorization is off; access control is the bearer token at the HTTP edge.
+- The SDK's per-task authorization is off. The caller is admitted by `CallerSecretFilter` at the
+  HTTP edge; the person is verified by the executor, which records them in each pause so a
+  `continue` by another person is refused (see [Who is calling](#who-is-calling)).
 - Push notifications are off on the card and in the handler. The event-bus processor still calls a
   push sender once per streaming event, so it gets a no-op sender.
 
@@ -130,12 +138,15 @@ PDFBox's font warning logger is held at `ERROR`.
 | Key | Env | Default | Meaning |
 |---|---|---|---|
 | `server.port` | `SERVER_PORT` | 8020 | Port the agent listens on. Under Docker only the host port; the container listens on 8020. |
-| `app.agent.url` | `APP_AGENT_URL` | `http://localhost:<SERVER_PORT>` | URL published in the card; clients call this one. |
+| `app.agent.url` | `APP_AGENT_URL` | `http://localhost:<SERVER_PORT>` | URL published in the card and called by clients: the one handed to callers' operators (`http://host.docker.internal:8020` for a caller in Docker on this machine). |
 | `app.statements.dir` | `APP_STATEMENTS_DIR` | none, required | Folder of downloaded statements. |
-| `app.a2a.auth.required` | `APP_A2A_AUTH_REQUIRED` | true | False removes the filter and the card's security scheme. |
-| `app.a2a.auth.token` | `APP_A2A_TOKEN` | none | Bearer token; required when auth is required. |
-| `app.llm.provider` | `APP_LLM_PROVIDER` | none, required | `anthropic` or `openai`. |
-| `app.llm.model` | `APP_LLM_MODEL` | none, required | Model id. |
+| `app.a2a.auth.required` | `APP_A2A_AUTH_REQUIRED` | true | False removes the filter, the token checks and the card's security schemes; everyone is then `anonymous`. |
+| `app.a2a.allowed_callers` | file named by `APP_A2A_CALLERS_FILE` | `./allowed-callers.yaml` | The registered callers (`name`, `shared_secret`, `client_id`), imported through `spring.config.import`; at least one is required when auth is required. |
+| `app.auth.client-id` | `APP_AUTH_CLIENT_ID` | none | This agent's own Google OAuth client id; the statements page signs in with it. Required when auth is required. |
+| `app.auth.issuer` | `APP_AUTH_ISSUER` | `https://accounts.google.com` | Who issues the tokens. |
+| `app.auth.jwks-url` | `APP_AUTH_JWKS_URL` | Google's JWKS URL | Where the issuer's public keys are fetched from and cached. |
+| `app.auth.public-key-file` | `APP_AUTH_PUBLIC_KEY_FILE` | none | Test only: a PEM public key that replaces the JWKS fetch. |
+| `app.llm.model` | `APP_LLM_MODEL` | none, required | `anthropic:<model>` or `openai:<model>`, the home finance agent's `LLM_MODEL` shape; the provider half selects the ChatModel. |
 | `app.categorizer.high-confidence` | `APP_CATEGORIZER_HIGH_CONFIDENCE` | 0.85 | From this model score up, a row's confidence is `high`. |
 | `app.categorizer.medium-confidence` | `APP_CATEGORIZER_MEDIUM_CONFIDENCE` | 0.6 | From this score up it is `medium`; below, `low`. |
 | `app.categorizer.batch-size` | `APP_CATEGORIZER_BATCH_SIZE` | 40 | Unseen merchants per classifier call. |
@@ -145,31 +156,68 @@ PDFBox's font warning logger is held at `ERROR`.
 | `logging.level.org.a2aproject.sdk` | `A2A_LOG_LEVEL` | WARN | SDK log level. |
 
 Startup fails, naming the variable, when a required setting is wrong: the `A2AProperties` record
-constructors reject a blank `APP_A2A_TOKEN` while auth is required, `LlmProperties` rejects a
-provider outside `anthropic | openai` and a missing `APP_LLM_MODEL`, and `LlmConfiguration` rejects
-a missing API key for the selected provider. `StatementFolder` refuses to start on a
-statements path that is not a directory, naming the path.
+constructors reject an empty callers list, an entry with a blank field and two entries sharing a
+secret while auth is required, `Users` rejects a blank `APP_AUTH_CLIENT_ID` while auth is required,
+`LlmProperties` rejects an `APP_LLM_MODEL` that is blank, not `provider:model`, or names a provider
+outside `anthropic | openai`, and `LlmConfiguration` rejects a missing API key for that provider. `StatementFolders` refuses
+to start on a statements path that is not a directory, naming the path.
 
 The `tck` Spring profile (`application-tck.yml`) turns auth off and swaps the executor; see
 [testing.md](testing.md#conformance). The `e2e` profile (`application-e2e.yml`) is for end-to-end
 tests only: it replaces the language model with the keyword table, so it needs no provider, model or
 key; see [Providers](#providers).
 
+## Who is calling
+
+Every request is for a person, and most arrive through a caller acting for that person. The agent
+knows them from two credentials, checked in two places:
+
+- **The caller**, by the shared secret in `X-Caller-Secret`. `CallerSecretFilter` compares it in
+  constant time against every registered caller (`Callers.bySecret`) and refuses the request with
+  401 when none matches; the matched `Caller` rides on the request into the SDK call context
+  (`CallContexts.CALLER_KEY`). Callers are entries of `allowed-callers.yaml`, written by
+  `scripts/register-caller.sh`: a name, the secret, and the Google OAuth client id of the caller's
+  own sign-in. Registration is the operator adding an entry; removing it revokes the caller.
+- **The person**, by the Google ID token in `Authorization`, which the caller forwards exactly as
+  the person's browser received it when signing in to the caller's page. `GoogleTokenVerifier`
+  checks the RS256 signature against the issuer's published keys (fetched once and cached by
+  nimbus-jose-jwt), the issuer, the expiry and the audience, which must equal the admitted
+  caller's registered client id (`Users.onBehalfOf`): a token issued to any other client, this
+  agent's own included, is refused. The token's `sub` is the person's id everywhere in the agent.
+
+The executor runs the person check itself, after `TASK_STATE_SUBMITTED` and before any work, so a
+failed check is a task state the caller can act on (`TASK_STATE_AUTH_REQUIRED` with a
+`sign-in-required` data part) rather than an HTTP refusal: the caller has the person sign in again
+and continues the same task. Each pause's data part records the person, and a `continue` by
+another Google account is answered with `sign-in-required` again. With auth off (the `tck`
+profile) neither credential is read and every request is for `anonymous`.
+
+The statements page is the other way in. It signs in with this agent's own Google client
+(`APP_AUTH_CLIENT_ID`, read from `GET /api/auth/config`), and its API verifies the token against
+that client (`Users.onPage`). The person uploads into, lists and deletes from the folder of their
+own `sub`; nobody else's folder is reachable, and a path-like id is refused by `UserIds` before it
+becomes a path.
+
+The agent honors a Google token that was issued to a partner's client. That is the trust two
+services under one roof place in one identity provider; an agent operated by a separate company
+would more likely issue tokens of its own after verifying the person (OAuth 2.0 token exchange).
+
 ## Providers
 
-| `APP_LLM_PROVIDER` | Classifier | Needs |
+| `APP_LLM_MODEL` | Classifier | Needs |
 |---|---|---|
-| `anthropic` | `SpringAiMerchantClassifier` over the Anthropic `ChatModel` | `APP_LLM_MODEL`, `ANTHROPIC_API_KEY` |
-| `openai` | `SpringAiMerchantClassifier` over the OpenAI `ChatModel` | `APP_LLM_MODEL`, `OPENAI_API_KEY` |
+| `anthropic:<model>` | `SpringAiMerchantClassifier` over the Anthropic `ChatModel` | `ANTHROPIC_API_KEY` |
+| `openai:<model>` | `SpringAiMerchantClassifier` over the OpenAI `ChatModel` | `OPENAI_API_KEY` |
 
 Every run needs one of them; no setting runs the agent without a language model. The `e2e` Spring
 profile alone swaps in `KeywordMerchantClassifier`, a fixed keyword table, so end-to-end tests run
-without a model or key. Under it `LlmProperties` is not bound, so `APP_LLM_PROVIDER`,
-`APP_LLM_MODEL` and the keys may be unset, and `application-e2e.yml` sets `spring.ai.model.chat`
-to `none`.
+without a model or key. Under it `LlmProperties` is not bound, so `APP_LLM_MODEL` and the keys may
+be unset, and `application-e2e.yml` sets `spring.ai.model.chat` to `none`.
 
-Both Spring AI starters are on the classpath. `spring.ai.model.chat` mirrors `APP_LLM_PROVIDER`,
-so only the selected provider's `ChatModel` auto-configures. Every non-chat model type (embedding,
+Both Spring AI starters are on the classpath. `spring.ai.model.chat` is the provider half of
+`APP_LLM_MODEL`, which `LlmModelEnvironmentPostProcessor` splits into `app.llm.provider` and
+`app.llm.model-id` before auto-configuration runs (a bean would come too late for that), so only
+the selected provider's `ChatModel` auto-configures and it is given the model half. Every non-chat model type (embedding,
 image, moderation, audio speech and transcription) is set to `none`: the agent uses chat only, and
 the OpenAI starter would otherwise create models that need libraries absent from the runtime
 classpath.
@@ -191,11 +239,14 @@ The keyword table answers known merchants with confidence 1.0 and everything els
 always has one merchant for a person to categorize. `validate.sh`, the integration test and the
 home finance agent's end-to-end test run under the `e2e` profile to use it.
 
-## Statement folder and layout
+## Statement folders and layout
 
-`StatementFolder` indexes the files in `APP_STATEMENTS_DIR` by the billing month their content
-declares. The card site offers each month as a PDF statement and as an Excel export; both are read,
-each by its own `StatementParser`, chosen by extension (`.pdf` or `.xlsx`, in any case):
+`APP_STATEMENTS_DIR` is a root with one folder per person, named by their Google account id;
+`StatementFolders` hands out one `StatementFolder` per person, created by their first upload (a
+lookup for a person without a folder is simply empty). `StatementFolder` indexes the files of one
+folder by the billing month their content declares. The card site offers each month as a PDF
+statement and as an Excel export; both are read, each by its own `StatementParser`, chosen by
+extension (`.pdf` or `.xlsx`, in any case):
 
 - Files with other extensions and Excel's `~$` lock files are skipped. Any other file that fails
   to parse fails the lookup with a message that starts with its file name.
@@ -257,16 +308,20 @@ Every test runs on the PDF statement; the Excel reader has no tests.
 
 ## Statements page
 
-`GET /statements.html` is a single static page (plain HTML and JavaScript, no build step) for
-loading statement PDFs into `APP_STATEMENTS_DIR` and deleting them. It does nothing else:
-reading, categorizing and reviewing a month stay with the A2A skill and the home finance agent.
-Its API:
+`GET /statements.html` is a single static page (plain HTML and JavaScript, no build step) where a
+person signs in with Google, loads statement PDFs into their own folder under `APP_STATEMENTS_DIR`
+and deletes them. It does nothing else: reading, categorizing and reviewing a month stay with the
+A2A skill and the home finance agent. The page reads `GET /api/auth/config` for the client id,
+loads Google's sign-in script, keeps the ID token in memory only and sends it as the bearer token
+of every API call; a 401 brings the sign-in button back. With auth off the page skips sign-in and
+works on the `anonymous` folder. Its API, each call with `Authorization: Bearer <ID token>`:
 
 | Request | Answer |
 |---|---|
-| `GET /api/statements` | The statement files in the folder (the files a lookup would read), sorted by name: `fileName`, `sizeBytes`, `modified`. |
+| `GET /api/statements` | The person's statement files (the files a lookup for them would read), sorted by name: `fileName`, `sizeBytes`, `modified`. |
 | `POST /api/statements`, multipart part `file` | 201 with the stored file, or a problem document (`application/problem+json`) whose `detail` names the cause: 400 for a refused file, 413 over the `spring.servlet.multipart.max-file-size` limit, 500 when the folder cannot be read or written. |
 | `DELETE /api/statements/{fileName}` | 204 once the file is deleted; 400 when no listed statement has that name, so a name never reaches outside the folder or a file that is not a statement. The file is not read first, so a file that blocks the folder (unreadable, misnamed, a second copy of a month) can be removed from the page. |
+| any of the above without an acceptable token | 401 with a problem document and `WWW-Authenticate: Bearer`. |
 
 `StatementFolder.add` refuses, naming the cause, a file that:
 
@@ -281,16 +336,15 @@ never place a file outside the folder, and the stored name agrees with the conte
 A lookup never sees a partial or refused file. A statement for a month already loaded is not
 replaced; remove the old file first.
 
-The page and its API need no token. The bearer token is shared between the two agents and guards
-the A2A endpoint only; a person loading a statement is not asked for it. Anyone who can reach the
-agent's port can therefore list the folder and add a statement, though not read or replace one.
-In Docker the folder is mounted writable and the container runs as the host user who owns it, so
-an uploaded file belongs to that user.
+The page and `/api/auth/config` are open; the API takes the person's own token, never a caller's
+secret. In Docker the folder is mounted writable and the container runs as the host user who owns
+it, so an uploaded file belongs to that user.
 
 A task waiting for a missing statement names the page in its input-required data part (`page`,
-the path on the agent's base URL), so a client can link a person straight to it.
-`StatementsEndpoint.PAGE` holds that path for both the data part and the token filter's exemption,
-and `StatementsEndpoint.API` the API's path for its mapping and the same exemption.
+the path on the agent's base URL), so a client can link a person straight to it; the person signs
+in there with the same Google account and lands in the same folder the task reads.
+`StatementsEndpoint.PAGE` holds that path for both the data part and the caller filter's
+exemption, and `StatementsEndpoint.API` the API's path for its mapping and the same exemption.
 
 ## Categorizer
 

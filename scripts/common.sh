@@ -69,6 +69,18 @@ ensure_java21() {
 
 is_healthy() { curl -fs --max-time 2 -o /dev/null "$1/actuator/health"; }  # base-url
 
+# The name the home finance agent's operator registers this agent under.
+AGENT_NAME=amex
+
+# The rule a card agent follows so the home finance agent's docs need none of its details: once
+# healthy, its start script prints the values add-card-agent.sh takes, and names where the secret
+# came from.
+print_handover() {  # advertised-url page-url
+  echo "Hand these to the home finance agent's operator, for its add-card-agent.sh:"
+  echo "  --name $AGENT_NAME --url $1 --browser-url $2"
+  echo "  --secret: the one register-caller.sh printed when it registered that agent"
+}
+
 # Poll the health endpoint until it answers or 60 seconds pass. Given a pid, fail as soon as that
 # process exits, so a dead launch is reported at once instead of after the full wait.
 wait_for_health() {  # base-url [pid]
@@ -91,8 +103,9 @@ ensure_validate_venv() {
   if [ ! -x "$venv/bin/python" ]; then
     python3 -m venv "$venv" >&2 || exit 1
   fi
-  if ! "$venv/bin/python" -c "import a2a" 2>/dev/null; then
-    "$venv/bin/pip" install --quiet --disable-pip-version-check "a2a-sdk>=1.2.2,<2" >&2 || exit 1
+  if ! "$venv/bin/python" -c "import a2a, jwt, cryptography" 2>/dev/null; then
+    "$venv/bin/pip" install --quiet --disable-pip-version-check "a2a-sdk>=1.2.2,<2" \
+      "PyJWT[crypto]>=2.10" >&2 || exit 1
   fi
   echo "$venv"
 }

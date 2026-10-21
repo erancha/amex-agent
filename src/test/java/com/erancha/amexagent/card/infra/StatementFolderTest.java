@@ -71,10 +71,24 @@ class StatementFolderTest {
   }
 
   @Test
-  void scan_missingDirectory_throws() {
-    assertThatThrownBy(() -> new StatementFolder(Path.of("/nonexistent/statements"), parsers))
-        .isInstanceOf(IllegalArgumentException.class)
-        .hasMessageContaining("/nonexistent/statements");
+  void scan_missingDirectory_isEmptyUntilTheFirstUploadCreatesIt(@TempDir Path dir)
+      throws Exception {
+    Path mine = dir.resolve("1000");
+    StatementFolder folder = new StatementFolder(mine, parsers);
+    assertThat(folder.forMonth(OCTOBER)).isEmpty();
+    assertThat(folder.list()).isEmpty();
+    assertThat(mine).doesNotExist();
+    folder.add("statement.pdf", Files.readAllBytes(PDF));
+    assertThat(mine.resolve("2026-10.pdf")).exists();
+    assertThat(folder.forMonth(OCTOBER)).isPresent();
+  }
+
+  @Test
+  void scan_pathThatIsAFile_throwsNamingIt(@TempDir Path dir) throws Exception {
+    Path file = dir.resolve("statements");
+    Files.writeString(file, "x");
+    assertThatThrownBy(() -> new StatementFolder(file, parsers))
+        .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("statements");
   }
 
   @Test

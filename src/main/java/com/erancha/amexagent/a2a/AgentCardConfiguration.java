@@ -7,18 +7,27 @@ import org.a2aproject.sdk.spec.AgentCapabilities;
 import org.a2aproject.sdk.spec.AgentCard;
 import org.a2aproject.sdk.spec.AgentInterface;
 import org.a2aproject.sdk.spec.AgentSkill;
-import org.a2aproject.sdk.spec.HTTPAuthSecurityScheme;
+import org.a2aproject.sdk.spec.APIKeySecurityScheme;
+import org.a2aproject.sdk.spec.OpenIdConnectSecurityScheme;
 import org.a2aproject.sdk.spec.SecurityRequirement;
 import org.a2aproject.sdk.spec.SecurityScheme;
 import org.a2aproject.sdk.spec.TransportProtocol;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
-/** Builds the public Agent Card from app.agent.* and app.a2a.auth.*. */
+/**
+ * Builds the public Agent Card from app.agent.* and app.a2a.auth.*. With authentication on, the
+ * card requires two credentials on every call: the signed-in person's Google ID token (an OpenID
+ * Connect scheme, sent as the bearer token) and the caller's shared secret (an API key scheme in
+ * the X-Caller-Secret header).
+ */
 @Configuration
 public class AgentCardConfiguration {
   public static final String SKILL_ID = "monthly-transactions";
-  public static final String SECURITY_SCHEME = "bearer";
+  public static final String USER_SCHEME = "google";
+  public static final String CALLER_SCHEME = "caller";
+  public static final String GOOGLE_OPENID_CONFIGURATION =
+      "https://accounts.google.com/.well-known/openid-configuration";
   // The skill accepts and returns what the agent as a whole does, so both levels share these.
   private static final List<String> INPUT_MODES = List.of("application/json", "text/plain");
   private static final List<String> OUTPUT_MODES = List.of("application/json");
@@ -48,11 +57,18 @@ public class AgentCardConfiguration {
             .outputModes(OUTPUT_MODES)
             .build()));
     if (props.a2a().auth().required()) {
-      card.securitySchemes(Map.<String, SecurityScheme>of(SECURITY_SCHEME,
-              HTTPAuthSecurityScheme.builder().scheme("bearer").description(
-                  "Shared token issued by the agent operator").build()))
-          .securityRequirements(List.of(
-              new SecurityRequirement(Map.of(SECURITY_SCHEME, List.of()))));
+      card.securitySchemes(Map.<String, SecurityScheme>of(
+              USER_SCHEME, OpenIdConnectSecurityScheme.builder()
+                  .openIdConnectUrl(GOOGLE_OPENID_CONFIGURATION)
+                  .description("The signed-in person's Google ID token, as the bearer token")
+                  .build(),
+              CALLER_SCHEME, APIKeySecurityScheme.builder()
+                  .location(APIKeySecurityScheme.Location.HEADER)
+                  .name(CallerSecretFilter.HEADER)
+                  .description("Shared secret registered with the agent operator")
+                  .build()))
+          .securityRequirements(List.of(new SecurityRequirement(
+              Map.of(USER_SCHEME, List.of(), CALLER_SCHEME, List.of()))));
     }
     return card.build();
   }

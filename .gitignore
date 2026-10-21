@@ -8,6 +8,7 @@ __pycache__/
 .env
 .env.*
 !.env.example
+allowed-callers.yaml
 .claude/
 CLAUDE.local.md
 docs/superpowers/

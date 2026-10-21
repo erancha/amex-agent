@@ -16,6 +16,11 @@ logging:
     org.apache.fontbox.ttf.PostScriptTable: ERROR
 
 spring:
+  # The registered A2A callers live in a file of their own beside .env, since it holds secrets:
+  # app.a2a.allowed_callers, one entry per caller. Missing, it leaves no caller registered, which
+  # fails startup while authentication is required.
+  config:
+    import: optional:file:${APP_A2A_CALLERS_FILE:./allowed-callers.yaml}
   # The statements page uploads one statement PDF at a time; a real one is about 0.5 MB.
   # Parsing is lazy so an oversized upload reaches the statements endpoint's error handling.
   servlet:
@@ -24,9 +29,10 @@ spring:
       max-request-size: 5MB
       resolve-lazily: true
   ai:
-    # Selects which provider's ChatModel auto-configuration loads; application-e2e.yml turns it off.
+    # Selects which provider's ChatModel auto-configuration loads: the provider half of
+    # APP_LLM_MODEL, split off by LlmModelEnvironmentPostProcessor; the e2e profile turns it off.
     model:
-      chat: ${APP_LLM_PROVIDER}
+      chat: ${app.llm.provider:}
       # The agent uses chat only, so every other model type stays off.
       embedding: none
       image: none
@@ -38,7 +44,7 @@ spring:
       api-key: ${ANTHROPIC_API_KEY:}
       chat:
         options:
-          model: ${APP_LLM_MODEL:}
+          model: ${app.llm.model-id:}
           # Claude's reasoning tokens share this budget with the JSON answer; one batch of merchants
           # can need most of Spring AI's 4096 default before the answer starts.
           max-tokens: 16384
@@ -46,7 +52,7 @@ spring:
       api-key: ${OPENAI_API_KEY:}
       chat:
         options:
-          model: ${APP_LLM_MODEL:}
+          model: ${app.llm.model-id:}
 
 app:
   agent:
@@ -57,9 +63,12 @@ app:
   a2a:
     auth:
       required: ${APP_A2A_AUTH_REQUIRED:true}
-      token: ${APP_A2A_TOKEN:}
+  auth:
+    client-id: ${APP_AUTH_CLIENT_ID:}
+    issuer: ${APP_AUTH_ISSUER:https://accounts.google.com}
+    jwks-url: ${APP_AUTH_JWKS_URL:https://www.googleapis.com/oauth2/v3/certs}
+    public-key-file: ${APP_AUTH_PUBLIC_KEY_FILE:}
   llm:
-    provider: ${APP_LLM_PROVIDER}
     model: ${APP_LLM_MODEL:}
   categorizer:
     high-confidence: ${APP_CATEGORIZER_HIGH_CONFIDENCE:0.85}

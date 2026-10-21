@@ -1,7 +1,9 @@
 services:
-  # The card agent, reading statements from the folder named in .env (APP_STATEMENTS_DIR). The
-  # statements page writes uploads into that folder, so the mount is writable and the process runs
-  # as the host user who owns it (scripts/common.sh exports HOST_UID and HOST_GID).
+  # The card agent, reading statements from the folder named in .env (APP_STATEMENTS_DIR), one
+  # sub-folder per person. The statements page writes uploads into that folder, so the mount is
+  # writable and the process runs as the host user who owns it (scripts/common.sh exports HOST_UID
+  # and HOST_GID). The registered callers come from the file register-caller.sh writes, mounted
+  # read-only; it must exist before the first start.
   amex-agent:
     build: .
     image: amex-agent:local
@@ -17,8 +19,10 @@ services:
     environment:
       SERVER_PORT: 8020
       APP_STATEMENTS_DIR: /statements
+      APP_A2A_CALLERS_FILE: /allowed-callers.yaml
     volumes:
       - ${APP_STATEMENTS_DIR:?set APP_STATEMENTS_DIR in .env}:/statements
+      - ${APP_A2A_CALLERS_FILE:-./allowed-callers.yaml}:/allowed-callers.yaml:ro
     ports:
       - "${SERVER_PORT:-8020}:8020"
     healthcheck:

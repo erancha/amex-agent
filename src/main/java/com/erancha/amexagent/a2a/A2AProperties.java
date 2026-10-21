@@ -1,14 +1,19 @@
 package com.erancha.amexagent.a2a;
 
+import com.erancha.amexagent.auth.Caller;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import java.nio.file.Path;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.boot.context.properties.bind.DefaultValue;
 import org.springframework.validation.annotation.Validated;
 
 /**
- * The app.* configuration tree apart from app.llm, which LlmProperties binds. Required keys fail
- * startup when absent.
+ * The app.* configuration tree apart from app.llm (LlmProperties) and app.auth (AuthProperties).
+ * Required keys fail startup when absent.
  */
 @ConfigurationProperties("app")
 @Validated
@@ -22,17 +27,28 @@ public record A2AProperties(
 
   public record Statements(@NotNull Path dir) {}
 
-  public record A2a(@NotNull Auth auth) {}
-
-  /** The token is mandatory whenever authentication is required. */
-  public record Auth(boolean required, String token) {
-    public Auth {
-      if (required && (token == null || token.isBlank())) {
-        throw new IllegalArgumentException(
-            "APP_A2A_TOKEN must be set when APP_A2A_AUTH_REQUIRED is true");
+  /**
+   * With authentication required, at least one caller must be registered, each with every field,
+   * and no two callers may share a secret, since the secret alone selects the caller.
+   */
+  public record A2a(@NotNull Auth auth, @DefaultValue List<Caller> allowedCallers) {
+    public A2a {
+      if (auth.required() && allowedCallers.isEmpty()) {
+        throw new IllegalArgumentException("No A2A caller is registered: the file named by "
+            + "APP_A2A_CALLERS_FILE (default ./allowed-callers.yaml) must list at least one "
+            + "entry under app.a2a.allowed_callers while APP_A2A_AUTH_REQUIRED is true");
+      }
+      Set<String> secrets = new HashSet<>();
+      for (Caller caller : allowedCallers) {
+        if (!secrets.add(caller.sharedSecret())) {
+          throw new IllegalArgumentException("Two entries of app.a2a.allowed_callers share a "
+              + "shared_secret; the secret alone identifies the caller (" + caller.name() + ")");
+        }
       }
     }
   }
+
+  public record Auth(boolean required) {}
 
   public record Categorizer(double highConfidence, double mediumConfidence, int batchSize) {}
 }

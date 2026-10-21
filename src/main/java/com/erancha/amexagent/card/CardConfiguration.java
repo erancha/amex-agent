@@ -1,13 +1,14 @@
 package com.erancha.amexagent.card;
 
 import com.erancha.amexagent.a2a.A2AProperties;
+import com.erancha.amexagent.auth.UserResolver;
 import com.erancha.amexagent.card.api.MerchantClassifier;
 import com.erancha.amexagent.card.api.StatementSource;
 import com.erancha.amexagent.card.application.MerchantCategorizer;
 import com.erancha.amexagent.card.application.TransactionsAgentExecutor;
 import com.erancha.amexagent.card.application.TransactionsService;
 import com.erancha.amexagent.card.infra.ExcelStatementParser;
-import com.erancha.amexagent.card.infra.StatementFolder;
+import com.erancha.amexagent.card.infra.StatementFolders;
 import com.erancha.amexagent.card.infra.ExcelStatementLayout;
 import com.erancha.amexagent.card.infra.PdfStatementLayout;
 import com.erancha.amexagent.card.infra.PdfStatementParser;
@@ -19,15 +20,15 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Profile;
 
 /**
- * Assembles the card pipeline: the statement folder with its PDF and Excel parsers, the
- * categorizer, the service, and the A2A executor. The folder is both the pipeline's statement
+ * Assembles the card pipeline: the per-person statement folders with their PDF and Excel parsers,
+ * the categorizer, the service, and the A2A executor. The folders are both the pipeline's statement
  * source and the store the statements page loads into.
  */
 @Configuration
 public class CardConfiguration {
   @Bean
-  public StatementFolder statementFolder(A2AProperties props) {
-    return new StatementFolder(props.statements().dir(), Map.of(
+  public StatementFolders statementFolders(A2AProperties props) {
+    return new StatementFolders(props.statements().dir(), Map.of(
         ".pdf", new PdfStatementParser(PdfStatementLayout.AMEX_ISRAEL),
         ".xlsx", new ExcelStatementParser(ExcelStatementLayout.AMEX_ISRAEL)));
   }
@@ -48,7 +49,8 @@ public class CardConfiguration {
 
   @Bean
   @Profile("!tck")
-  public AgentExecutor transactionsAgentExecutor(TransactionsService service) {
-    return new TransactionsAgentExecutor(service, StatementsEndpoint.PAGE);
+  public AgentExecutor transactionsAgentExecutor(TransactionsService service,
+      UserResolver users) {
+    return new TransactionsAgentExecutor(service, StatementsEndpoint.PAGE, users);
   }
 }

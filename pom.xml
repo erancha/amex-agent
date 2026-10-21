@@ -26,6 +26,8 @@
     <protobuf.version>4.35.1</protobuf.version>
     <poi.version>5.5.1</poi.version>
     <pdfbox.version>3.0.5</pdfbox.version>
+    <!-- Not managed by the Boot BOM (Spring Security's module is not on the classpath). -->
+    <nimbus-jose-jwt.version>10.3</nimbus-jose-jwt.version>
     <surefire.version>3.5.4</surefire.version>
     <test.argLine>-XX:+EnableDynamicAgentLoading -Xshare:off</test.argLine>
   </properties>
@@ -107,6 +109,12 @@
       <groupId>org.apache.pdfbox</groupId>
       <artifactId>pdfbox</artifactId>
       <version>${pdfbox.version}</version>
+    </dependency>
+    <!-- Verifies Google ID tokens: JWKS fetch and cache, RS256 signature, claims. -->
+    <dependency>
+      <groupId>com.nimbusds</groupId>
+      <artifactId>nimbus-jose-jwt</artifactId>
+      <version>${nimbus-jose-jwt.version}</version>
     </dependency>
 
     <dependency>

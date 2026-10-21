@@ -27,9 +27,12 @@ class TransactionsServiceTest {
   @Test
   void monthlyTransactions_covered_returnsCategorizedRows() {
     TransactionsService service = new TransactionsService(
-        m -> m.equals(YearMonth.of(2026, 10)) ? Optional.of(statement) : Optional.empty(),
+        (u, m) -> u.equals("1000") && m.equals(YearMonth.of(2026, 10))
+            ? Optional.of(statement) : Optional.empty(),
         categorizer);
-    Optional<Statement> out = service.monthlyTransactions(YearMonth.of(2026, 10));
+    Optional<Statement> out = service.monthlyTransactions("1000", YearMonth.of(2026, 10));
+    assertThat(service.monthlyTransactions("2000", YearMonth.of(2026, 10)))
+        .as("another person's month").isEmpty();
     assertThat(out).isPresent();
     assertThat(out.get().transactions().get(0).category()).isEqualTo(Category.TRANSPORT);
     assertThat(out.get().transactions().get(0).merchant()).isEqualTo("Paz");
@@ -37,7 +40,8 @@ class TransactionsServiceTest {
 
   @Test
   void monthlyTransactions_uncovered_isEmpty() {
-    TransactionsService service = new TransactionsService(m -> Optional.empty(), categorizer);
-    assertThat(service.monthlyTransactions(YearMonth.of(2026, 9))).isEmpty();
+    TransactionsService service =
+        new TransactionsService((u, m) -> Optional.empty(), categorizer);
+    assertThat(service.monthlyTransactions("1000", YearMonth.of(2026, 9))).isEmpty();
   }
 }

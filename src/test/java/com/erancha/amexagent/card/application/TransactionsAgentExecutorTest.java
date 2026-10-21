@@ -3,6 +3,9 @@ package com.erancha.amexagent.card.application;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.erancha.amexagent.auth.InvalidTokenException;
+import com.erancha.amexagent.auth.UserResolver;
+import com.erancha.amexagent.auth.VerifiedUser;
 import com.erancha.amexagent.card.api.MerchantCategory;
 import com.erancha.amexagent.card.api.Statement;
 import com.erancha.amexagent.card.api.Transaction;
@@ -19,6 +22,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicReference;
 import org.a2aproject.sdk.server.agentexecution.RequestContext;
 import org.a2aproject.sdk.server.events.EventQueue;
 import org.a2aproject.sdk.server.events.EventQueueClosedException;
@@ -44,11 +48,14 @@ import org.junit.jupiter.api.Test;
 
 /**
  * Verifies the A2A lifecycle the executor drives: submitted/working/artifacts/completed for a
- * covered month, input-required for a missing one, continue on the same task, cancel rules, and
- * InvalidParams for anything else. Uses the SDK's in-memory queue, with its event-bus processor
- * running, to capture the emitted events.
+ * covered month, input-required for a missing one, auth-required for an unverified person,
+ * continue on the same task by the same person only, cancel rules, and InvalidParams for anything
+ * else. Uses the SDK's in-memory queue, with its event-bus processor running, to capture the
+ * emitted events.
  */
 class TransactionsAgentExecutorTest {
+  private static final String USER = "1000";
+  private static final String OTHER_USER = "2000";
   private static final int POLL_MILLIS = 50;
   private static final Duration SETTLE_DEADLINE = Duration.ofSeconds(5);
   private static final Statement OCTOBER =
@@ -63,12 +70,24 @@ class TransactionsAgentExecutorTest {
     new MainEventBusProcessor(bus, store, (event, task) -> { }, queues).start();
   }
 
+  /** The person every request is for; null stands for a request without an acceptable token. */
+  private final AtomicReference<String> signedIn = new AtomicReference<>(USER);
+
+  /** Statements of USER alone; another person's folder is always empty. */
   private TransactionsAgentExecutor executor(Map<YearMonth, Statement> covered) {
     MerchantCategorizer categorizer = new MerchantCategorizer(
         raws -> raws.stream().map(r -> new MerchantCategory(r, r, "other", 0.9)).toList(),
         0.85, 0.6, 40);
+    UserResolver users = context -> {
+      String sub = signedIn.get();
+      if (sub == null) {
+        throw new InvalidTokenException("the token has expired");
+      }
+      return new VerifiedUser(sub, null, null);
+    };
     return new TransactionsAgentExecutor(new TransactionsService(
-        m -> Optional.ofNullable(covered.get(m)), categorizer), "/statements.html");
+        (u, m) -> u.equals(USER) ? Optional.ofNullable(covered.get(m)) : Optional.empty(),
+        categorizer), "/statements.html", users);
   }
 
   private static Message user(Map<String, Object> data, String taskId, String contextId) {
@@ -76,12 +95,25 @@ class TransactionsAgentExecutorTest {
         .parts(List.of(new DataPart(data))).taskId(taskId).contextId(contextId).build();
   }
 
-  /** The SDK has already moved the input-required message into the history by continue time. */
+  /**
+   * The SDK has already moved the pause message into the history by continue time, after the
+   * person's own request, whose data part names no reason.
+   */
   private static Task waiting(List<Event> firstRun) {
     TaskStatusUpdateEvent last = (TaskStatusUpdateEvent) firstRun.get(firstRun.size() - 1);
     return Task.builder().id("t1").contextId("c1")
-        .status(new TaskStatus(TaskState.TASK_STATE_INPUT_REQUIRED, null, null))
-        .history(List.of(last.status().message())).artifacts(List.of()).build();
+        .status(new TaskStatus(last.status().state(), null, null))
+        .history(List.of(user(Map.of("month", "2026-10"), "t1", "c1"), last.status().message()))
+        .artifacts(List.of()).build();
+  }
+
+  private static TaskStatusUpdateEvent last(List<Event> events) {
+    return (TaskStatusUpdateEvent) events.get(events.size() - 1);
+  }
+
+  private static Map<String, Object> pauseData(List<Event> events) {
+    return asMap((DataPart) last(events).status().message().parts().stream()
+        .filter(DataPart.class::isInstance).findFirst().orElseThrow());
   }
 
   @SuppressWarnings("unchecked")
@@ -160,7 +192,62 @@ class TransactionsAgentExecutorTest {
     DataPart data = (DataPart) m.parts().stream().filter(DataPart.class::isInstance)
         .findFirst().orElseThrow();
     assertThat(asMap(data)).containsEntry("reason", "statement-missing")
-        .containsEntry("month", "2026-09").containsEntry("page", "/statements.html");
+        .containsEntry("month", "2026-09").containsEntry("page", "/statements.html")
+        .containsEntry("user", USER);
+  }
+
+  @Test
+  void execute_withoutAnAcceptableToken_asksForSignInNamingTheReasonAndMonth() throws Exception {
+    signedIn.set(null);
+    List<Event> events = run(executor(Map.of(YearMonth.of(2026, 10), OCTOBER)),
+        user(Map.of("month", "2026-10"), null, null), null);
+    assertThat(states(events)).containsExactly(TaskState.TASK_STATE_SUBMITTED,
+        TaskState.TASK_STATE_AUTH_REQUIRED);
+    assertThat(last(events).isFinalOrInterrupted()).isTrue();
+    assertThat(((TextPart) last(events).status().message().parts().get(0)).text())
+        .contains("the token has expired").contains("Sign in again and continue");
+    assertThat(pauseData(events)).containsEntry("reason", "sign-in-required")
+        .containsEntry("month", "2026-10").containsEntry("user", "");
+    assertThat(events).noneMatch(TaskArtifactUpdateEvent.class::isInstance);
+  }
+
+  @Test
+  void execute_continueAfterSignInRequired_withAFreshToken_completes() throws Exception {
+    TransactionsAgentExecutor executor = executor(Map.of(YearMonth.of(2026, 10), OCTOBER));
+    signedIn.set(null);
+    Task task = waiting(run(executor, user(Map.of("month", "2026-10"), null, null), null));
+    assertThat(task.status().state()).isEqualTo(TaskState.TASK_STATE_AUTH_REQUIRED);
+
+    signedIn.set(USER);
+    List<Event> second = run(executor, user(Map.of("action", "continue"), "t1", "c1"), task);
+    assertThat(states(second)).containsExactly(TaskState.TASK_STATE_WORKING,
+        TaskState.TASK_STATE_COMPLETED);
+  }
+
+  @Test
+  void execute_continueByAnotherPerson_asksForSignInAndServesNothing() throws Exception {
+    Map<YearMonth, Statement> folder = new HashMap<>();
+    TransactionsAgentExecutor executor = executor(folder);
+    Task task = waiting(run(executor, user(Map.of("month", "2026-10"), null, null), null));
+    folder.put(YearMonth.of(2026, 10), OCTOBER);
+
+    signedIn.set(OTHER_USER);
+    List<Event> second = run(executor, user(Map.of("action", "continue"), "t1", "c1"), task);
+    assertThat(states(second)).containsExactly(TaskState.TASK_STATE_AUTH_REQUIRED);
+    assertThat(((TextPart) last(second).status().message().parts().get(0)).text())
+        .contains("different Google account");
+    assertThat(pauseData(second)).containsEntry("reason", "sign-in-required")
+        .containsEntry("month", "2026-10").containsEntry("user", USER);
+    assertThat(second).noneMatch(TaskArtifactUpdateEvent.class::isInstance);
+  }
+
+  @Test
+  void execute_anotherPersonsMonth_isMissingForThem() throws Exception {
+    signedIn.set(OTHER_USER);
+    List<Event> events = run(executor(Map.of(YearMonth.of(2026, 10), OCTOBER)),
+        user(Map.of("month", "2026-10"), null, null), null);
+    assertThat(last(events).status().state()).isEqualTo(TaskState.TASK_STATE_INPUT_REQUIRED);
+    assertThat(pauseData(events)).containsEntry("user", OTHER_USER);
   }
 
   @Test

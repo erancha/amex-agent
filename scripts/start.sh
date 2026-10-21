@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 #
 # Run amex-agent. Docker is the default; --host runs it as a local JVM for fast restarts
-# and debugger attach. Either way the agent answers on http://localhost:${SERVER_PORT:-8020} and
-# prints its Agent Card URL once /actuator/health is green.
+# and debugger attach. Either way the agent answers on http://localhost:${SERVER_PORT:-8020} and,
+# once /actuator/health is green, prints its Agent Card URL and the values the home finance
+# agent's operator registers it with: its name, APP_AGENT_URL and the page URL.
 #
 #   ./scripts/start.sh            # build the image and run it with the statements folder mounted
 #   ./scripts/start.sh --host     # mvn spring-boot:run, attached to this terminal (Ctrl-C stops it)
@@ -27,7 +28,10 @@ load_env
 PORT="${SERVER_PORT:-8020}"
 BASE="http://localhost:$PORT"
 
-print_card_url() { echo "amex-agent -> $BASE   card: $BASE/.well-known/agent-card.json"; }
+print_card_url() {
+  echo "amex-agent -> $BASE   card: $BASE/.well-known/agent-card.json"
+  print_handover "$APP_AGENT_URL" "$BASE"
+}
 
 if [ "$HOST" -eq 0 ]; then
   require_docker

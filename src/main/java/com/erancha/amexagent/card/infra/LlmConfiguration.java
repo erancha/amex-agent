@@ -44,7 +44,8 @@ public class LlmConfiguration {
 
   private static void requireKey(String key, String variable, String provider) {
     if (key.isBlank()) {
-      throw new IllegalStateException(variable + " must be set for APP_LLM_PROVIDER=" + provider);
+      throw new IllegalStateException(
+          variable + " must be set for the " + provider + " provider of " + LlmProperties.VARIABLE);
     }
   }
 }
