@@ -5,10 +5,9 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.Profile;
 
 /**
- * The app.llm configuration: APP_LLM_MODEL as provider:model, the shape the home finance agent's
- * LLM_MODEL has. The provider half selects the Spring AI ChatModel, the rest is the model named to
- * that provider. Unbound under the e2e profile, which categorizes with the keyword table and needs
- * no model.
+ * The app.llm configuration: APP_LLM_MODEL as provider:model. The provider half selects the
+ * Spring AI ChatModel, the rest is the model named to that provider. Unbound under the e2e
+ * profile, which categorizes with the keyword table and needs no model.
  */
 @ConfigurationProperties("app.llm")
 @Profile("!" + LlmConfiguration.E2E_PROFILE)

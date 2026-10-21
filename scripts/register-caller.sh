@@ -7,7 +7,7 @@
 #   app:
 #     a2a:
 #       allowed_callers:
-#         - name: home-finance-agent
+#         - name: <caller>
 #           shared_secret: <secret>
 #           client_id: <Google OAuth client id>
 #
@@ -15,16 +15,19 @@
 #   ./scripts/register-caller.sh ... --secret <secret>   # registers a given secret (tests)
 #   ./scripts/register-caller.sh ... --file <path>       # another file (APP_A2A_CALLERS_FILE)
 #
-# The secret is shown once and never again; hand it to the caller's operator together with the
-# values start.sh prints once the agent is up. A caller with that name is replaced; other callers
-# are kept. Removing an entry revokes the caller; the agent reads the file at startup, so restart
-# it after a change.
+# The secret is shown once and never again, printed with this agent's name and URLs: the four
+# values the caller's operator records. start.sh repeats the public three once the agent is up. A
+# caller with that name is replaced; other callers are kept. Removing an entry revokes the caller;
+# the agent reads the file at startup, so restart a running one after a change.
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=common.sh
 source "$SCRIPT_DIR/common.sh"
+# .env is optional here: it only supplies the URLs the hand-over names, which otherwise default to
+# the agent's own.
+[ -f "$ROOT_DIR/.env" ] && load_env
 
-NAME="" SECRET="" CLIENT_ID="" FILE="$ROOT_DIR/allowed-callers.yaml"
+NAME="" SECRET="" CLIENT_ID="" FILE="$DEFAULT_CALLERS_FILE"
 while [ $# -gt 0 ]; do
   case "$1" in
     --name)      NAME="${2:?--name needs a value}"; shift ;;
@@ -51,6 +54,7 @@ for value in "$NAME" "$SECRET" "$CLIENT_ID"; do
     || { echo "Values may contain only letters, digits, '_', '.' and '-': '$value'." >&2; exit 2; }
 done
 
+clear_callers_dir "$FILE"
 umask 077
 python3 - "$FILE" "$NAME" "$SECRET" "$CLIENT_ID" <<'PY'
 import os, re, sys
@@ -94,8 +98,11 @@ os.chmod(tmp, 0o600)
 os.replace(tmp, path)
 PY
 if [ "$MINTED" -eq 1 ]; then
-  echo "Registered $NAME in $FILE. Its secret, shown once: $SECRET"
+  echo "Registered $NAME in $FILE."
+  print_handover "$NAME's operator" "$SECRET"
+  echo "The secret is shown once and never again."
 else
   echo "Registered $NAME in $FILE with the given secret."
+  print_handover "$NAME's operator" "the one given"
 fi
-echo "The agent reads the file at startup: restart it to apply."
+echo "An agent already running reads the file at its next start."

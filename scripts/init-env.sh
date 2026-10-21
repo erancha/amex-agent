@@ -5,9 +5,9 @@
 #   ./scripts/init-env.sh                 # create .env
 #   ./scripts/init-env.sh --force         # overwrite an existing .env
 #
-# Then set APP_AUTH_CLIENT_ID (the agent's own Google OAuth client) and the API key of
-# APP_LLM_MODEL's provider (anthropic:claude-haiku-5-5 unless changed); the agent refuses to start
-# without them. Register each A2A caller with ./scripts/register-caller.sh.
+# Then set APP_AUTH_CLIENT_ID (the agent's own Google OAuth client) and APP_LLM_API_KEY (the key
+# of APP_LLM_MODEL's provider, anthropic:claude-haiku-5-5 unless changed); the agent refuses to
+# start without them. Register each A2A caller with ./scripts/register-caller.sh.
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=common.sh
@@ -33,5 +33,5 @@ fi
 umask 077
 cp "$ROOT_DIR/.env.example" "$ENV_FILE"
 chmod 600 "$ENV_FILE"
-echo "Created .env. Set APP_AUTH_CLIENT_ID and the API key of APP_LLM_MODEL's provider in it."
-echo "Register the home finance agent (or any caller): ./scripts/register-caller.sh --help"
+echo "Created .env. Set APP_AUTH_CLIENT_ID and APP_LLM_API_KEY in it."
+echo "Register each A2A caller: ./scripts/register-caller.sh --help"

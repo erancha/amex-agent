@@ -16,8 +16,8 @@ import org.springframework.mock.web.MockHttpServletResponse;
  * who then rides on the request for the executor.
  */
 class CallerSecretFilterTest {
-  private static final Caller HFA = new Caller("home-finance-agent", "s3cret", "client-1");
-  private final CallerSecretFilter filter = new CallerSecretFilter(new Callers(List.of(HFA)));
+  private static final Caller CALLER = new Caller("test-caller", "s3cret", "client-1");
+  private final CallerSecretFilter filter = new CallerSecretFilter(new Callers(List.of(CALLER)));
 
   private record Outcome(MockHttpServletResponse response, boolean reached, Object caller) {}
 
@@ -47,7 +47,7 @@ class CallerSecretFilterTest {
     Outcome out = call("POST", "/", "s3cret", "Bearer some-id-token");
     assertThat(out.response().getStatus()).isEqualTo(200);
     assertThat(out.reached()).isTrue();
-    assertThat(out.caller()).isEqualTo(HFA);
+    assertThat(out.caller()).isEqualTo(CALLER);
   }
 
   @Test

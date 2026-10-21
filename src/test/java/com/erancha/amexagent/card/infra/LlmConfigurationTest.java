@@ -19,10 +19,11 @@ import org.springframework.context.ConfigurableApplicationContext;
  */
 class LlmConfigurationTest {
   // Command-line arguments outrank the developer's exported environment, so a real key or model
-  // in the calling shell cannot mask a missing one here.
+  // in the calling shell cannot mask one a test leaves blank. Spring joins a repeated argument
+  // into a list, so each test passes a variable once.
   private static ConfigurableApplicationContext boot(String... args) {
     String[] base = {"--APP_STATEMENTS_DIR=src/test/resources/statements",
-        "--APP_A2A_AUTH_REQUIRED=false", "--ANTHROPIC_API_KEY=", "--OPENAI_API_KEY="};
+        "--APP_A2A_AUTH_REQUIRED=false"};
     return new SpringApplicationBuilder(AmexAgentApplication.class)
         .web(WebApplicationType.NONE)
         .run(Stream.concat(Stream.of(base), Stream.of(args)).toArray(String[]::new));
@@ -44,16 +45,17 @@ class LlmConfigurationTest {
 
   @Test
   void boot_realProviderWithoutKey_failsNamingTheVariable() {
-    assertThatThrownBy(() -> boot("--APP_LLM_MODEL=anthropic:m"))
-        .rootCause().hasMessageContaining("ANTHROPIC_API_KEY");
+    assertThatThrownBy(() -> boot("--APP_LLM_MODEL=anthropic:m", "--APP_LLM_API_KEY="))
+        .rootCause().hasMessageContaining("APP_LLM_API_KEY").hasMessageContaining("anthropic");
   }
 
   @Test
   void boot_realProviderWithKey_selectsItsChatModel() {
-    try (var context = boot("--APP_LLM_MODEL=anthropic:m", "--ANTHROPIC_API_KEY=k")) {
+    try (var context = boot("--APP_LLM_MODEL=anthropic:m", "--APP_LLM_API_KEY=k")) {
       var env = context.getEnvironment();
       assertThat(env.getProperty("spring.ai.model.chat")).isEqualTo("anthropic");
       assertThat(env.getProperty("spring.ai.anthropic.chat.options.model")).isEqualTo("m");
+      assertThat(env.getProperty("spring.ai.anthropic.api-key")).isEqualTo("k");
       assertThat(context.getBean(MerchantClassifier.class))
           .isInstanceOf(SpringAiMerchantClassifier.class);
     }
@@ -71,26 +73,15 @@ class LlmConfigurationTest {
   }
 
   @Test
-  void requireApiKey_providerOtherThanARealOne_failsAsUnreachable() {
-    assertThatThrownBy(() -> LlmConfiguration.requireApiKey("fake", "", ""))
-        .isInstanceOf(IllegalStateException.class).hasMessageContaining("fake");
+  void requireApiKey_blank_failsNamingTheVariableAndProvider() {
+    assertThatThrownBy(() -> LlmConfiguration.requireApiKey(" ", "openai"))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("APP_LLM_API_KEY").hasMessageContaining("openai");
   }
 
   @Test
-  void requireApiKey_anthropicWithoutKey_failsNamingTheVariable() {
-    assertThatThrownBy(() -> LlmConfiguration.requireApiKey("anthropic", "", "o"))
-        .isInstanceOf(IllegalStateException.class).hasMessageContaining("ANTHROPIC_API_KEY");
-  }
-
-  @Test
-  void requireApiKey_openaiWithoutKey_failsNamingTheVariable() {
-    assertThatThrownBy(() -> LlmConfiguration.requireApiKey("openai", "a", ""))
-        .isInstanceOf(IllegalStateException.class).hasMessageContaining("OPENAI_API_KEY");
-  }
-
-  @Test
-  void requireApiKey_anthropicWithKey_passes() {
-    assertThatCode(() -> LlmConfiguration.requireApiKey("anthropic", "k", ""))
+  void requireApiKey_set_passes() {
+    assertThatCode(() -> LlmConfiguration.requireApiKey("k", "openai"))
         .doesNotThrowAnyException();
   }
 }

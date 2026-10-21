@@ -26,7 +26,7 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 public final class TestTokens {
   public static final String ISSUER = "test-issuer";
   public static final String PAGE_CLIENT_ID = "page-client";
-  public static final String CALLER_NAME = "home-finance-agent";
+  public static final String CALLER_NAME = "test-caller";
   public static final String CALLER_SECRET = "caller-s3cret";
   public static final String CALLER_CLIENT_ID = "caller-client";
   public static final String SUB = "1000";
@@ -40,7 +40,7 @@ public final class TestTokens {
     return sign(sub, PAGE_CLIENT_ID, ISSUER, Instant.now().plusSeconds(600));
   }
 
-  /** A token for the registered caller's client, as the home finance agent forwards it. */
+  /** A token for the registered caller's client, as a caller forwards it. */
   public static String callerToken(String sub) {
     return sign(sub, CALLER_CLIENT_ID, ISSUER, Instant.now().plusSeconds(600));
   }

@@ -2,7 +2,7 @@
 
 amex-agent is one Spring Boot process with two halves: a Spring MVC transport around the official
 a2a-java server library (`a2a/`), and a fixed card pipeline that turns a billing month into
-categorized transactions (`card/`). The wire contract is in [a2a-contract.md](a2a-contract.md);
+categorized transactions (`card/`). What goes on the wire is in [a2a-contract.md](a2a-contract.md);
 this file explains how the code delivers it.
 
 **Contents:** [Components](#components) · [Request flow](#request-flow) ·
@@ -29,7 +29,7 @@ Packages under `src/main/java/com/erancha/amexagent/`:
 | `auth` | `Users`, `UserResolver`, `Caller`, `Callers`, `UserIds` | Which client id a request's token is checked against (the page's own, or the admitted caller's), the registered callers looked up by secret in constant time, and the rule that admits a Google account id as a folder name. |
 | `auth` | `AuthProperties`, `AuthConfiguration` | The `app.auth.*` settings and the beans built from them and from the callers list. |
 | `a2a` | `SpringJsonRpcTransportMetadata` | ServiceLoader provider (`META-INF/services/org.a2aproject.sdk.server.TransportMetadata`) so the SDK's card validation accepts the JSONRPC interface. |
-| `a2a` | `A2AProperties` | The `app.*` configuration tree apart from `app.llm`; its record constructors reject invalid required settings at startup. |
+| `a2a` | `A2AProperties` | The `app.*` configuration tree apart from `app.llm` and `app.auth`; its record constructors reject invalid required settings at startup. |
 | `card/api` | `Transaction`, `Installment`, `Statement`, `Category`, `Confidence`, `MerchantCategory`, `StatementSource`, `MerchantClassifier` | Domain records, the taxonomy, and the two ports the pipeline depends on; every statement port takes the person's id. |
 | `card/application` | `TransactionsAgentExecutor` | The SDK `AgentExecutor` for the skill: names the person from the forwarded token, then drives submitted, working, artifact chunks, completed, or one of the two pauses (input-required, auth-required) and the `continue` resume by the same person. |
 | `card/application` | `MonthRequest`, `TransactionsService`, `ArtifactMapper` | Validate the request, run the use case, shape transactions into 25-row artifact data parts. |
@@ -146,12 +146,11 @@ PDFBox's font warning logger is held at `ERROR`.
 | `app.auth.issuer` | `APP_AUTH_ISSUER` | `https://accounts.google.com` | Who issues the tokens. |
 | `app.auth.jwks-url` | `APP_AUTH_JWKS_URL` | Google's JWKS URL | Where the issuer's public keys are fetched from and cached. |
 | `app.auth.public-key-file` | `APP_AUTH_PUBLIC_KEY_FILE` | none | Test only: a PEM public key that replaces the JWKS fetch. |
-| `app.llm.model` | `APP_LLM_MODEL` | none, required | `anthropic:<model>` or `openai:<model>`, the home finance agent's `LLM_MODEL` shape; the provider half selects the ChatModel. |
+| `app.llm.model` | `APP_LLM_MODEL` | none, required | `anthropic:<model>` or `openai:<model>`; the provider half selects the ChatModel. |
 | `app.categorizer.high-confidence` | `APP_CATEGORIZER_HIGH_CONFIDENCE` | 0.85 | From this model score up, a row's confidence is `high`. |
 | `app.categorizer.medium-confidence` | `APP_CATEGORIZER_MEDIUM_CONFIDENCE` | 0.6 | From this score up it is `medium`; below, `low`. |
 | `app.categorizer.batch-size` | `APP_CATEGORIZER_BATCH_SIZE` | 40 | Unseen merchants per classifier call. |
-| `spring.ai.anthropic.api-key` | `ANTHROPIC_API_KEY` | none | Required for `anthropic`. |
-| `spring.ai.openai.api-key` | `OPENAI_API_KEY` | none | Required for `openai`. |
+| `app.llm.api-key` | `APP_LLM_API_KEY` | none, required | The API key of that provider; both `spring.ai.*.api-key` read it. |
 | `logging.level.com.erancha` | `LOG_LEVEL` | INFO | Agent log level. |
 | `logging.level.org.a2aproject.sdk` | `A2A_LOG_LEVEL` | WARN | SDK log level. |
 
@@ -159,8 +158,8 @@ Startup fails, naming the variable, when a required setting is wrong: the `A2APr
 constructors reject an empty callers list, an entry with a blank field and two entries sharing a
 secret while auth is required, `Users` rejects a blank `APP_AUTH_CLIENT_ID` while auth is required,
 `LlmProperties` rejects an `APP_LLM_MODEL` that is blank, not `provider:model`, or names a provider
-outside `anthropic | openai`, and `LlmConfiguration` rejects a missing API key for that provider. `StatementFolders` refuses
-to start on a statements path that is not a directory, naming the path.
+outside `anthropic | openai`, and `LlmConfiguration` rejects a blank `APP_LLM_API_KEY`.
+`StatementFolders` refuses to start on a statements path that is not a directory, naming the path.
 
 The `tck` Spring profile (`application-tck.yml`) turns auth off and swaps the executor; see
 [testing.md](testing.md#conformance). The `e2e` profile (`application-e2e.yml`) is for end-to-end
@@ -193,10 +192,10 @@ another Google account is answered with `sign-in-required` again. With auth off 
 profile) neither credential is read and every request is for `anonymous`.
 
 The statements page is the other way in. It signs in with this agent's own Google client
-(`APP_AUTH_CLIENT_ID`, read from `GET /api/auth/config`), and its API verifies the token against
-that client (`Users.onPage`). The person uploads into, lists and deletes from the folder of their
-own `sub`; nobody else's folder is reachable, and a path-like id is refused by `UserIds` before it
-becomes a path.
+(`APP_AUTH_CLIENT_ID`, set up as [sign-in.md](sign-in.md) describes, read from
+`GET /api/auth/config`), and its API verifies the token against that client (`Users.onPage`). The
+person uploads into, lists and deletes from the folder of their own `sub`; nobody else's folder
+is reachable, and a path-like id is refused by `UserIds` before it becomes a path.
 
 The agent honors a Google token that was issued to a partner's client. That is the trust two
 services under one roof place in one identity provider; an agent operated by a separate company
@@ -204,23 +203,24 @@ would more likely issue tokens of its own after verifying the person (OAuth 2.0 
 
 ## Providers
 
-| `APP_LLM_MODEL` | Classifier | Needs |
-|---|---|---|
-| `anthropic:<model>` | `SpringAiMerchantClassifier` over the Anthropic `ChatModel` | `ANTHROPIC_API_KEY` |
-| `openai:<model>` | `SpringAiMerchantClassifier` over the OpenAI `ChatModel` | `OPENAI_API_KEY` |
+| `APP_LLM_MODEL` | Classifier |
+|---|---|
+| `anthropic:<model>` | `SpringAiMerchantClassifier` over the Anthropic `ChatModel` |
+| `openai:<model>` | `SpringAiMerchantClassifier` over the OpenAI `ChatModel` |
 
-Every run needs one of them; no setting runs the agent without a language model. The `e2e` Spring
-profile alone swaps in `KeywordMerchantClassifier`, a fixed keyword table, so end-to-end tests run
-without a model or key. Under it `LlmProperties` is not bound, so `APP_LLM_MODEL` and the keys may
-be unset, and `application-e2e.yml` sets `spring.ai.model.chat` to `none`.
+Every run needs one of them with `APP_LLM_API_KEY`, that provider's key; no setting runs the agent
+without a language model. The `e2e` Spring profile alone swaps in `KeywordMerchantClassifier`, a
+fixed keyword table, so end-to-end tests run without a model or key. Under it `LlmProperties` is not
+bound, so `APP_LLM_MODEL` and `APP_LLM_API_KEY` may be unset, and `application-e2e.yml` sets
+`spring.ai.model.chat` to `none`.
 
 Both Spring AI starters are on the classpath. `spring.ai.model.chat` is the provider half of
 `APP_LLM_MODEL`, which `LlmModelEnvironmentPostProcessor` splits into `app.llm.provider` and
-`app.llm.model-id` before auto-configuration runs (a bean would come too late for that), so only
-the selected provider's `ChatModel` auto-configures and it is given the model half. Every non-chat model type (embedding,
-image, moderation, audio speech and transcription) is set to `none`: the agent uses chat only, and
-the OpenAI starter would otherwise create models that need libraries absent from the runtime
-classpath.
+`app.llm.model-id` before auto-configuration runs (a bean would come too late for that), so only the
+selected provider's `ChatModel` auto-configures and it is given the model half. Every non-chat model
+type (embedding, image, moderation, audio speech and transcription) is set to `none`: the agent uses
+chat only, and the OpenAI starter would otherwise create models that need libraries absent from the
+runtime classpath.
 
 `SpringAiMerchantClassifier` sends the taxonomy and one batch of raw merchant strings in a single
 structured-output call and reads back, per merchant, a display name, a category and a confidence.
@@ -236,8 +236,8 @@ one batch of a few dozen merchants can exhaust. A reply without answer text fail
 finish reason and the limit's property instead of handing an empty string to the JSON reader.
 The keyword table answers known merchants with confidence 1.0 and everything else as
 `uncategorized` at 0.0. It covers the test statement's merchants except its gym, so a test review
-always has one merchant for a person to categorize. `validate.sh`, the integration test and the
-home finance agent's end-to-end test run under the `e2e` profile to use it.
+always has one merchant for a person to categorize. `validate.sh`, the integration test and a
+caller's own end-to-end tests run under the `e2e` profile to use it.
 
 ## Statement folders and layout
 
@@ -311,10 +311,12 @@ Every test runs on the PDF statement; the Excel reader has no tests.
 `GET /statements.html` is a single static page (plain HTML and JavaScript, no build step) where a
 person signs in with Google, loads statement PDFs into their own folder under `APP_STATEMENTS_DIR`
 and deletes them. It does nothing else: reading, categorizing and reviewing a month stay with the
-A2A skill and the home finance agent. The page reads `GET /api/auth/config` for the client id,
-loads Google's sign-in script, keeps the ID token in memory only and sends it as the bearer token
-of every API call; a 401 brings the sign-in button back. With auth off the page skips sign-in and
-works on the `anonymous` folder. Its API, each call with `Authorization: Bearer <ID token>`:
+A2A skill and its callers. The page reads `GET /api/auth/config` for the client id, loads Google's
+sign-in script, keeps the ID token in memory only and sends it as the bearer token of every API
+call; a 401 brings the sign-in button back. Once signed in, a header at the top names the person's
+account, with a Sign out button that drops the token and returns the page to the sign-in button.
+With auth off the page skips sign-in and works on the `anonymous` folder. Its API, each call with
+`Authorization: Bearer <ID token>`:
 
 | Request | Answer |
 |---|---|

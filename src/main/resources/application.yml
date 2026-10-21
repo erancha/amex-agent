@@ -40,8 +40,9 @@ spring:
       audio:
         speech: none
         transcription: none
+    # Both providers read APP_LLM_API_KEY; only the selected one's ChatModel loads.
     anthropic:
-      api-key: ${ANTHROPIC_API_KEY:}
+      api-key: ${app.llm.api-key}
       chat:
         options:
           model: ${app.llm.model-id:}
@@ -49,7 +50,7 @@ spring:
           # can need most of Spring AI's 4096 default before the answer starts.
           max-tokens: 16384
     openai:
-      api-key: ${OPENAI_API_KEY:}
+      api-key: ${app.llm.api-key}
       chat:
         options:
           model: ${app.llm.model-id:}
@@ -70,6 +71,7 @@ app:
     public-key-file: ${APP_AUTH_PUBLIC_KEY_FILE:}
   llm:
     model: ${APP_LLM_MODEL:}
+    api-key: ${APP_LLM_API_KEY:}
   categorizer:
     high-confidence: ${APP_CATEGORIZER_HIGH_CONFIDENCE:0.85}
     medium-confidence: ${APP_CATEGORIZER_MEDIUM_CONFIDENCE:0.6}

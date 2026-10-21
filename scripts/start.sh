@@ -2,13 +2,14 @@
 #
 # Run amex-agent. Docker is the default; --host runs it as a local JVM for fast restarts
 # and debugger attach. Either way the agent answers on http://localhost:${SERVER_PORT:-8020} and,
-# once /actuator/health is green, prints its Agent Card URL and the values the home finance
-# agent's operator registers it with: its name, APP_AGENT_URL and the page URL.
+# once /actuator/health is green, prints its Agent Card URL and the values a caller's operator
+# registers it with: its name, APP_AGENT_URL and the page URL.
 #
 #   ./scripts/start.sh            # build the image and run it with the statements folder mounted
 #   ./scripts/start.sh --host     # mvn spring-boot:run, attached to this terminal (Ctrl-C stops it)
 #
-# Requires .env (./scripts/init-env.sh). Stop or inspect the Docker run with docker-helper.sh.
+# Requires .env (./scripts/init-env.sh) and, while access is required, a registered caller
+# (./scripts/register-caller.sh). Stop or inspect the Docker run with docker-helper.sh.
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=common.sh
@@ -25,12 +26,13 @@ done
 
 require_env
 load_env
-PORT="${SERVER_PORT:-8020}"
-BASE="http://localhost:$PORT"
+require_callers_file
+BASE="$(page_url)"
 
 print_card_url() {
   echo "amex-agent -> $BASE   card: $BASE/.well-known/agent-card.json"
-  print_handover "$APP_AGENT_URL" "$BASE"
+  print_handover "each A2A caller's operator" \
+    "the one register-caller.sh printed when it registered that caller"
 }
 
 if [ "$HOST" -eq 0 ]; then

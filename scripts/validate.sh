@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Prove the agent alone, without the home finance agent. Starts it on the host against the test
+# Prove the agent alone, without any real caller. Starts it on the host against the test
 # statement under the e2e profile (keyword table, no model) with a throwaway signing key standing
 # in for Google, then drives it from the client side as a registered caller forwarding a person's
 # token: card, a streaming task for 2026-10 (24 transactions, completed), a task for 2026-09
@@ -42,7 +42,7 @@ JAR="$ROOT_DIR/target/amex-agent.jar"
 
 # A key pair of this run's own stands in for Google: the agent verifies against the public half,
 # check_agent.py signs with the private one. The person is user 1000, whose folder holds the test
-# statement; the caller is registered the way an operator registers the home finance agent.
+# statement; the caller is registered the way an operator registers a real one.
 AUTH_DIR="$ROOT_DIR/target/validate-auth"
 rm -rf "$AUTH_DIR" && mkdir -p "$AUTH_DIR/statements/1000"
 openssl genpkey -quiet -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out "$AUTH_DIR/private.pem"
@@ -71,7 +71,7 @@ run_agent() {  # port profiles [provider, unread under the e2e profile]
     exit 1
   fi
   SERVER_PORT="$1" APP_AGENT_URL="$url" APP_LLM_MODEL="${provider:+$provider:placeholder}" \
-  ANTHROPIC_API_KEY=placeholder OPENAI_API_KEY=placeholder \
+  APP_LLM_API_KEY=placeholder \
   APP_STATEMENTS_DIR="$AUTH_DIR/statements" SPRING_PROFILES_ACTIVE="$2" \
   LOG_LEVEL=WARN java -jar "$JAR" >"$log" 2>&1 &
   local pid=$!

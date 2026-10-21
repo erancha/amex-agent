@@ -29,8 +29,8 @@ import org.springframework.context.annotation.Configuration;
 /**
  * Wires the a2a-java server library as Spring beans: the in-memory task store, the queue manager
  * (which closes streams when a task waits for input), the main event bus and its processor
- * thread, the two a2a thread pools, the caller-secret filter and the JSON-RPC handler (wrapping
- * the SDK's default request handler) that the endpoints delegate to.
+ * thread, the two a2a thread pools, the caller-secret filter, the user resolver and the JSON-RPC
+ * handler (wrapping the SDK's default request handler) that the endpoints delegate to.
  */
 @Configuration
 public class A2AServerConfiguration {

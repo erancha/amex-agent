@@ -13,7 +13,7 @@ import org.springframework.mock.web.MockHttpServletRequest;
 
 /** Verifies the per-request context carries headers, caller, version, tenant and transport. */
 class CallContextsTest {
-  private static final Caller HFA = new Caller("home-finance-agent", "s", "client-1");
+  private static final Caller CALLER = new Caller("test-caller", "s", "client-1");
 
   @Test
   void from_request_populatesSdkState() {
@@ -21,7 +21,7 @@ class CallContextsTest {
     request.addHeader("A2A-Version", "1.0");
     request.addHeader("A2A-Extensions", "urn:a, urn:b");
     request.addHeader("authorization", "Bearer x");
-    request.setAttribute(CallerSecretFilter.CALLER, HFA);
+    request.setAttribute(CallerSecretFilter.CALLER, CALLER);
     ServerCallContext ctx = CallContexts.from(request);
     assertThat(ctx.getUser()).isSameAs(UnauthenticatedUser.INSTANCE);
     assertThat(ctx.getRequestedProtocolVersion()).isEqualTo("1.0");
@@ -29,7 +29,7 @@ class CallContextsTest {
     assertThat(ctx.getState())
         .containsEntry(ServerCallContext.TRANSPORT_KEY, TransportProtocol.JSONRPC)
         .containsEntry(JSONRPCContextKeys.TENANT_KEY, "")
-        .containsEntry(CallContexts.CALLER_KEY, HFA);
+        .containsEntry(CallContexts.CALLER_KEY, CALLER);
     @SuppressWarnings("unchecked")
     Map<String, String> headers =
         (Map<String, String>) ctx.getState().get(JSONRPCContextKeys.HEADERS_KEY);

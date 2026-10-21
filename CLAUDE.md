@@ -3,15 +3,17 @@
 A2A server for one skill, `monthly-transactions`, over American Express Israel PDF statements.
 Spring Boot 4 + the official a2a-java 1.4 server library with a hand-written Spring MVC transport
 (`a2a/`); the card pipeline is `card/` (api → application → infra). README.md tells the story;
-docs/a2a-contract.md is the wire contract the home finance agent's repo depends on. Do not change
-the artifact schema or taxonomy without updating that file and the home finance agent.
+docs/a2a-contract.md describes how this agent implements the skill's contract, which the caller's
+repo owns. Do not change the artifact schema or taxonomy: they are the contract's, not this agent's.
 
 ## Commands (scripts/, each prints usage with --help)
 
-- `init-env.sh` — create `.env` (`--force` to overwrite); then set `APP_AUTH_CLIENT_ID`
+- `init-env.sh` — create `.env` (`--force` to overwrite); then set `APP_AUTH_CLIENT_ID` and
+  `APP_LLM_API_KEY`
 - `register-caller.sh --name N --client-id C [--secret S] [--file F]` — register or replace an A2A
   caller in `allowed-callers.yaml` (gitignored); mints and prints the secret unless one is given
-- `start.sh [--host]` — Docker (default) or `mvn spring-boot:run`; agent on :8020
+- `start.sh [--host]` — Docker (default) or `mvn spring-boot:run`; agent on :8020; stops before
+  launching when access is required and no callers file exists
 - `docker-helper.sh --stop|--logs [-e]|--ps`
 - `test.sh [unit|it|all]` — `mvn test` / `mvn verify`; no Docker or API key needed
 - `validate.sh [--tck]` — starts the packaged jar on :8021 against the sample under the `e2e`
@@ -28,12 +30,12 @@ the artifact schema or taxonomy without updating that file and the home finance 
   provider or the SDK's card validation throws at the first card fetch.
 - Hand-written JSON-RPC calls need the `A2A-Version: 1.0` header, or the server answers
   VERSION_NOT_SUPPORTED.
-- A run needs `APP_LLM_MODEL` as `provider:model` (anthropic | openai, the home finance agent's
-  `LLM_MODEL` shape) and the provider's key. `LlmModelEnvironmentPostProcessor` (spring.factories)
-  splits it before auto-configuration so `spring.ai.model.chat` is the provider and only one
-  ChatModel loads; every non-chat Spring AI model type is `none` in application.yml. The keyword
-  classifier exists only under the `e2e` Spring profile (validate.sh, the context tests, the IT and
-  the home finance agent's e2e), which binds no `app.llm` and sets `spring.ai.model.chat: none`.
+- A run needs `APP_LLM_MODEL` as `provider:model` (anthropic | openai) and `APP_LLM_API_KEY`.
+  `LlmModelEnvironmentPostProcessor` (spring.factories) splits it before auto-configuration so
+  `spring.ai.model.chat` is the provider and only one ChatModel loads; every non-chat Spring AI
+  model type is `none` in application.yml. The keyword classifier exists only under the `e2e` Spring
+  profile (validate.sh, the context tests, the IT and a caller's e2e), which binds no `app.llm` and
+  sets `spring.ai.model.chat: none`.
 - Access: every A2A call carries `Authorization: Bearer <person's Google ID token>` and
   `X-Caller-Secret`; `CallerSecretFilter` admits the caller, the executor verifies the token against
   that caller's registered `client_id` (`auth/`, nimbus-jose-jwt) and pauses the task in

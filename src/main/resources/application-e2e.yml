@@ -1,6 +1,6 @@
 # Profile for end-to-end tests only: LlmConfiguration supplies the keyword classifier and binds no
-# LlmProperties, so APP_LLM_MODEL and the API keys are not read. chat: none keeps every provider's
-# ChatModel from loading.
+# LlmProperties, so APP_LLM_MODEL and APP_LLM_API_KEY are not read. chat: none keeps every
+# provider's ChatModel from loading.
 spring:
   ai:
     model:

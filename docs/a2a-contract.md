@@ -1,18 +1,19 @@
-# A2A contract: amex-agent
+# A2A contract: how amex-agent implements it
 
-This file is the source of truth; the home finance agent's repo links here. It describes what the
-agent puts on the wire: the Agent Card, the request and the events of one task, the artifact
-schema, the category taxonomy, authentication, and the errors a client can receive.
+The `monthly-transactions` skill has one contract for every card agent, owned by its caller:
+[the contract](https://github.com/erancha/home-finance-agent/blob/main/docs/a2a-contract.md)
+defines the transport, the agent card, the request, the stream, the row schema, the taxonomy, the
+pauses and the two credentials. This page describes only what is amex-agent's own: the endpoint
+and its headers, the card's values, the exact texts and artifact naming it puts on the wire, how
+it fills each row, how it checks the credentials, and the errors it answers with.
 
 **Contents:** [Transport](#transport) · [Agent Card](#agent-card) · [Request](#request) ·
 [Task lifecycle](#task-lifecycle) · [Pauses and resume](#pauses-and-resume) ·
-[Cancel](#cancel) · [Artifact schema](#artifact-schema) · [Taxonomy](#taxonomy) ·
-[Authentication](#authentication) · [Errors](#errors)
+[Cancel](#cancel) · [Rows](#rows) · [Authentication](#authentication) · [Errors](#errors)
 
 ## Transport
 
-- A2A protocol version `1.0`, JSON-RPC 2.0 binding, one endpoint: `POST /` at the agent's base URL
-  (`http://localhost:8020` by default).
+- One endpoint: `POST /` at the agent's base URL (`http://localhost:8020` by default).
 - Every JSON-RPC request carries `Content-Type: application/json` and `A2A-Version: 1.0`. Without
   the version header the server treats the request as an older protocol version and answers
   `VERSION_NOT_SUPPORTED` (-32009).
@@ -23,9 +24,6 @@ schema, the category taxonomy, authentication, and the errors a client can recei
   the stream ends.
 - Every JSON-RPC error travels with HTTP 200. The only non-200 answer on `POST /` is the 401 of the
   caller-secret check.
-- Task states appear on the wire by their protocol enum names: `TASK_STATE_SUBMITTED`,
-  `TASK_STATE_WORKING`, `TASK_STATE_INPUT_REQUIRED`, `TASK_STATE_AUTH_REQUIRED`,
-  `TASK_STATE_COMPLETED`, `TASK_STATE_CANCELED`, `TASK_STATE_FAILED`.
 
 ## Agent Card
 
@@ -46,7 +44,7 @@ One skill:
 |---|---|
 | `id` | `monthly-transactions` |
 | `name` | `Monthly card transactions` |
-| `description` | Names the full [taxonomy](#taxonomy) and the request and resume shapes |
+| `description` | Names the full taxonomy and the request and resume shapes |
 | `inputModes` / `outputModes` | `application/json`, `text/plain` / `application/json` |
 | `tags` | `finance`, `credit-card`, `transactions` |
 | `examples` | `{"month": "2026-10"}` |
@@ -77,8 +75,6 @@ X-Caller-Secret: <the caller's registered secret>
 - A month in any other shape (`2026-9`, `09/2026`, `2026-13`) is rejected with `InvalidParams`
   (-32602), never read as a nearby month. A message with no usable part is rejected the same way.
 
-`month` is the **billing month**: the month the card is charged, as printed on the statement.
-
 The blocking `SendMessage` method accepts the same message and returns the task in one document,
 but it intermittently answers `InternalError` (-32603) `Timeout waiting for task <id>
 consumption` for a task that did complete: the SDK's blocking wait races its own task storage
@@ -93,11 +89,11 @@ A covered month produces these events, in order, on one stream:
 1. `statusUpdate` `TASK_STATE_SUBMITTED`.
 2. `statusUpdate` `TASK_STATE_WORKING` with an agent message holding the text part
    `Parsing statement for 2026-10`.
-3. One or more `artifactUpdate` events, each carrying one data part (see
-   [Artifact schema](#artifact-schema)) with up to 25 transactions. All chunks of a task share one
-   `artifactId` (`transactions-<taskId>`) and the name `transactions`; `append` is false on the
-   first chunk and true after it, and `lastChunk` is true on the final one. A statement with no rows
-   still produces one chunk with an empty `transactions` list.
+3. One or more `artifactUpdate` events, each carrying one data part (see [Rows](#rows)) with up to
+   25 transactions. All chunks of a task share one `artifactId` (`transactions-<taskId>`) and the
+   name `transactions`; `append` is false on the first chunk and true after it, and `lastChunk` is
+   true on the final one. A statement with no rows still produces one chunk with an empty
+   `transactions` list.
 4. `statusUpdate` `TASK_STATE_COMPLETED`. The server then ends the stream.
 
 One frame of the stream, abridged:
@@ -109,10 +105,10 @@ data: {"jsonrpc":"2.0","id":1,"result":{"statusUpdate":{"taskId":"8cd6…","cont
 id: 1
 ```
 
-Status updates carry no `final` flag. A client decides from the state: `TASK_STATE_COMPLETED`,
-`TASK_STATE_CANCELED` and `TASK_STATE_FAILED` are terminal; `TASK_STATE_INPUT_REQUIRED` and
-`TASK_STATE_AUTH_REQUIRED` are interrupted states, so the task stays alive, but the agent ends the
-stream right after either event.
+Status updates carry no `final` flag. `TASK_STATE_COMPLETED`, `TASK_STATE_CANCELED` and
+`TASK_STATE_FAILED` are terminal; `TASK_STATE_INPUT_REQUIRED` and `TASK_STATE_AUTH_REQUIRED` are
+interrupted states, so the task stays alive, but the agent ends the stream right after either
+event.
 
 When parsing or categorizing fails (a malformed statement file, two files for one month, a model
 provider error), the stream ends with a JSON-RPC error frame, `InternalError` (-32603), whose
@@ -120,9 +116,9 @@ message reads `Agent execution failed: <cause>`, and the task is left in `TASK_S
 
 ## Pauses and resume
 
-A task pauses in one of two interrupted states. Each pause's status message holds a text part for
-the person and one data part that names the reason, the month and the person the task is for, so
-the task itself remembers everything a resume needs.
+Each pause's status message holds a text part for the person and one data part that names the
+reason, the month and the person the task is for, so the task itself remembers everything a
+resume needs.
 
 **Missing statement.** When no statement file of the person covers the month, the task goes from
 `TASK_STATE_WORKING` to `TASK_STATE_INPUT_REQUIRED`:
@@ -135,12 +131,8 @@ the task itself remembers everything a resume needs.
 ]}
 ```
 
-- `reason`: `statement-missing`.
-- `month`: the billing month, `YYYY-MM`, that no statement covers.
-- `page`: optional. The path, on the agent's own base URL, of a page where a person loads the
-  missing statement; a client shows it as a link. This agent always sends `/statements.html`; an
-  agent with no such page omits the field.
-- `user`: the Google account id (`sub`) of the person, from the token the caller forwarded.
+`page` is always `/statements.html`, the statements page on the agent's own base URL; `user` is
+the Google account id (`sub`) of the person, from the token the caller forwarded.
 
 **Sign-in required.** When the request carries no acceptable token for the person (none, expired,
 badly signed, or issued to a client other than the caller's registered one), the task goes to
@@ -153,10 +145,7 @@ badly signed, or issued to a client other than the caller's registered one), the
 ]}
 ```
 
-- `reason`: `sign-in-required`.
-- `month`: the billing month the request was for.
-- `user`: the person the task was already bound to, or `""` when no person has been verified yet.
-
+`user` is the person the task was already bound to, or `""` when no person has been verified yet.
 The same answer, with a text naming the cause, is given to a `continue` whose token names another
 Google account than the one the task was started for; the task serves only its own person.
 
@@ -195,72 +184,30 @@ person's current token and the caller's secret as on every call:
   with `TaskNotCancelable` (-32002), message
   `Task cannot be canceled - current state: TASK_STATE_COMPLETED` (or the state it is in).
 
-## Artifact schema
+## Rows
 
-Each artifact chunk carries one data part:
+Each artifact chunk carries one data part in the contract's row schema. How amex-agent fills the
+fields:
 
-```json
-{
-  "month": "2026-10",
-  "currency": "ILS",
-  "transactions": [
-    {
-      "id": "20261002-09",
-      "transactionDate": "2026-09-04",
-      "chargeDate": "2026-10-02",
-      "merchant": "Cellcom",
-      "rawMerchant": "סלקום ישראל בע\"מ",
-      "amount": 46.21,
-      "originalAmount": null,
-      "originalCurrency": null,
-      "standingOrder": true,
-      "abroad": false,
-      "installment": null,
-      "category": "utilities",
-      "confidence": "high"
-    }
-  ]
-}
-```
-
-| Field | Meaning |
+| Field | Source |
 |---|---|
-| `month` | Billing month of the statement, `YYYY-MM`. |
-| `currency` | Card currency, `ILS`. |
-| `id` | Stable across runs, so a month fetched twice can be deduplicated: the charge date and the row's position for a PDF statement (`20261002-09`), the voucher number for an Excel export. |
-| `transactionDate` | Purchase date, `YYYY-MM-DD`; usually in the month before the billing month. |
-| `chargeDate` | Date the card is charged, `YYYY-MM-DD`. |
-| `merchant` | Readable display name chosen by the categorizer; the raw string when it has none. |
-| `rawMerchant` | The merchant string exactly as the statement prints it. |
-| `amount` | Charged amount in the card currency. |
-| `originalAmount`, `originalCurrency` | Purchase amount and ISO currency code (`USD`, `EUR` or `GBP`), set only when the purchase currency differs from the card currency; otherwise `null`. |
-| `standingOrder` | The statement marks the row as a standing order. |
-| `abroad` | The statement lists the purchase as made abroad. |
-| `installment` | `{"number": 3, "total": 10}` for installment 3 of 10, otherwise `null`. |
-| `category` | One value of the [taxonomy](#taxonomy). |
-| `confidence` | How sure the agent is of `category`: `high`, `medium` or `low`. |
+| `currency` | Always `ILS`. |
+| `id` | The charge date and the row's position for a PDF statement (`20261002-09`), the voucher number for an Excel export; both stable across runs of the same file. |
+| `merchant` | The display name chosen by the categorizer; the raw string when it has none. |
+| `originalCurrency` | `USD`, `EUR` or `GBP` when the purchase currency differs from the card currency. |
+| `standingOrder`, `abroad`, `installment` | Read from the statement's own markings. |
+| `category`, `confidence` | The categorizer's answer; every other field comes from the statement without a model call. |
 
-Every field comes from the statement without a model call except `merchant`, `category` and
-`confidence`. The model's score stays inside the agent: from `APP_CATEGORIZER_HIGH_CONFIDENCE`
-(default 0.85) up it is reported as `high`, from `APP_CATEGORIZER_MEDIUM_CONFIDENCE` (default 0.6)
-up as `medium`, below that as `low`. A `low` row keeps the agent's best guess as its category, so
-the caller can confirm or correct it. A model answer outside the taxonomy or the score range is
+The model's score stays inside the agent: from `APP_CATEGORIZER_HIGH_CONFIDENCE` (default 0.85)
+up it is reported as `high`, from `APP_CATEGORIZER_MEDIUM_CONFIDENCE` (default 0.6) up as
+`medium`, below that as `low`. A `low` row keeps the agent's best guess as its category, so the
+caller can confirm or correct it. A model answer outside the taxonomy or the score range is
 `"category": "uncategorized"` with `low` confidence.
-
-The data part travels as a protobuf `Struct`, so the key order of an object is not preserved and
-every number is a JSON double: `installment` arrives as `{"number": 3.0, "total": 10.0}`. Read
-fields by name and parse numbers as numbers.
-
-## Taxonomy
-
-Fixed, and listed in the skill description:
-
-`groceries`, `dining`, `transport`, `utilities`, `housing`, `health`, `insurance`, `education`,
-`shopping`, `entertainment`, `travel`, `gifts`, `other`, `uncategorized`.
 
 ## Authentication
 
-Every A2A call carries two credentials, and the card says so (see [Agent Card](#agent-card)):
+Every A2A call carries the contract's two credentials, and the card says so (see
+[Agent Card](#agent-card)):
 
 - `X-Caller-Secret: <secret>` proves which registered caller sends the request. Callers are
   registered by the agent's operator in `allowed-callers.yaml` (`scripts/register-caller.sh`), each

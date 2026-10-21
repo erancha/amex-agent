@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Shared helpers for the amex-agent scripts: repo root, compose wrapper, Java 21 discovery,
-# .env loading, and the health wait every launcher uses.
+# Shared helpers for the amex-agent scripts: repo root, compose wrapper, the callers-file checks,
+# .env loading, Java 21 discovery, the health wait every launcher uses and the handover lines
+# start.sh prints for a caller's operator.
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -18,6 +19,34 @@ compose() {
 require_docker() {
   docker info >/dev/null 2>&1 \
     || { echo "Docker is not reachable; start it and retry." >&2; exit 1; }
+}
+
+# Where register-caller.sh writes the callers and the agent reads them unless APP_A2A_CALLERS_FILE
+# names another file.
+DEFAULT_CALLERS_FILE="$ROOT_DIR/allowed-callers.yaml"
+
+# Docker turns a missing mount source into an empty root-owned directory. Its parent is the
+# repo, so the owner may remove it: an empty one goes quietly, a directory holding anything is
+# refused by name rather than guessed about.
+clear_callers_dir() {  # path
+  [ -d "$1" ] || return 0
+  if [ -n "$(ls -A "$1")" ]; then
+    echo "$1 is a directory with content where the callers file belongs; move it away first." >&2
+    exit 1
+  fi
+  rmdir "$1"
+  echo "Removed the empty directory $1 that a Docker start without a callers file left."
+}
+
+# With access required the agent refuses to start without a registered caller, so the file is
+# checked before any launch.
+require_callers_file() {
+  [ "${APP_A2A_AUTH_REQUIRED:-true}" = false ] && return 0
+  local file="${APP_A2A_CALLERS_FILE:-$DEFAULT_CALLERS_FILE}"
+  [[ "$file" = /* ]] || file="$ROOT_DIR/$file"
+  clear_callers_dir "$file"
+  [ -f "$file" ] || { echo "No A2A caller registered ($file is missing); register one first:" \
+    " ./scripts/register-caller.sh --help" >&2; exit 1; }
 }
 
 require_env() {
@@ -69,16 +98,29 @@ ensure_java21() {
 
 is_healthy() { curl -fs --max-time 2 -o /dev/null "$1/actuator/health"; }  # base-url
 
-# The name the home finance agent's operator registers this agent under.
+# The name a caller's operator registers this agent under.
 AGENT_NAME=amex
 
-# The rule a card agent follows so the home finance agent's docs need none of its details: once
-# healthy, its start script prints the values add-card-agent.sh takes, and names where the secret
-# came from.
-print_handover() {  # advertised-url page-url
-  echo "Hand these to the home finance agent's operator, for its add-card-agent.sh:"
-  echo "  --name $AGENT_NAME --url $1 --browser-url $2"
-  echo "  --secret: the one register-caller.sh printed when it registered that agent"
+# The URLs the hand-over names, with application.yml's defaults when .env leaves them unset, so
+# the printed values are the running agent's.
+page_url() { echo "http://localhost:${SERVER_PORT:-8020}"; }
+advertised_url() { echo "${APP_AGENT_URL:-$(page_url)}"; }
+
+# The four values a caller's operator registers this agent with. register-caller.sh prints them
+# with the secret it minted; start.sh repeats them once the agent is up. A localhost card reaches
+# only a caller on this host outside Docker, so that case is flagged while the value can change.
+print_handover() {  # audience secret-text
+  local url
+  url="$(advertised_url)"
+  echo "Hand these to $1:"
+  echo "  name:            $AGENT_NAME"
+  echo "  A2A URL:         $url"
+  echo "  statements page: $(page_url)"
+  echo "  secret:          $2"
+  if [[ "$url" == http://localhost* ]]; then
+    echo "A caller running in Docker on this machine cannot reach localhost; set APP_AGENT_URL" \
+      "to http://host.docker.internal:8020 in .env before handing the URL over."
+  fi
 }
 
 # Poll the health endpoint until it answers or 60 seconds pass. Given a pid, fail as soon as that

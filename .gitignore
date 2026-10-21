@@ -17,3 +17,6 @@ docs/superpowers/
 # Card statements are private and stay local; the folder itself is tracked.
 statements/*
 !statements/.gitkeep
+
+# Local copies of a previous .env and registry, kept for reference; never committed.
+backup/

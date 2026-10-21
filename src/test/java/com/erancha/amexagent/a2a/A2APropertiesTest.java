@@ -9,7 +9,7 @@ import org.junit.jupiter.api.Test;
 
 /** Verifies misconfiguration fails at construction, naming what the operator must fix. */
 class A2APropertiesTest {
-  private static final Caller HFA = new Caller("home-finance-agent", "s1", "client-1");
+  private static final Caller CALLER = new Caller("test-caller", "s1", "client-1");
 
   @Test
   void a2a_requiredWithoutCallers_namesTheCallersFile() {
@@ -28,7 +28,7 @@ class A2APropertiesTest {
   void a2a_twoCallersWithOneSecret_isRefused() {
     Caller other = new Caller("other", "s1", "client-2");
     assertThatThrownBy(() -> new A2AProperties.A2a(new A2AProperties.Auth(true),
-        List.of(HFA, other)))
+        List.of(CALLER, other)))
         .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("shared_secret");
   }
 

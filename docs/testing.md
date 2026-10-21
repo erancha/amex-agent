@@ -3,7 +3,8 @@
 Four layers, each proving something the others cannot: unit tests pin the parsing, categorizing
 and transport rules; the integration test drives the real agent with the a2a-java client;
 `validate.sh` drives the packaged jar with the Python a2a-sdk client; the official A2A TCK checks
-the transport against the protocol. None needs Docker or an API key.
+the transport against the protocol. Beside them, the Bash checks under `scripts/tests/` pin what
+the operator scripts print and refuse. None needs Docker or an API key.
 
 **Contents:** [Running](#running) · [Unit](#unit) · [Integration](#integration) ·
 [Client-side validation](#client-side-validation) · [Conformance](#conformance) · [CI](#ci)
@@ -16,12 +17,14 @@ the transport against the protocol. None needs Docker or an API key.
 | `./scripts/test.sh` (or `it`, `all`) | Unit and integration tests (`*IT`, `mvn verify`) | Java 21, Maven |
 | `./scripts/validate.sh` | Packages the jar, starts it on port 8021 under the `e2e` profile with the test statement in one person's folder and a throwaway signing key standing in for Google, runs the client checks as a registered caller, then boots the jar once per real provider with a placeholder key to prove the provider's runtime libraries ship in it | Java 21, Maven, Python 3.11+, openssl, network for the first venv install |
 | `bash scripts/tests/test_load_env.sh` | Scripts: `.env` loading in `common.sh` (caller's environment wins, quotes stripped, malformed line rejected) | Bash |
-| `bash scripts/tests/test_register_caller.sh` | Scripts: `register-caller.sh` mints and prints a secret unless given one, replaces an entry by name keeping the others, and writes the file owner-readable | Bash |
+| `bash scripts/tests/test_register_caller.sh` | Scripts: `register-caller.sh` mints and prints a secret unless given one, with the agent's name and URLs the caller's operator records, replaces an entry by name keeping the others, writes the file owner-readable, replaces an empty directory at the path (what a Docker start without the file leaves) and refuses one with content | Bash |
+| `bash scripts/tests/test_require_callers_file.sh` | Scripts: `require_callers_file` in `common.sh` stops `start.sh` before any launch when no callers file exists, removes an empty directory standing in its place and refuses one with content, and passes with the file present (default or relative `APP_A2A_CALLERS_FILE`) or with access not required | Bash |
+| `bash scripts/tests/test_handover.sh` | Scripts: `print_handover` in `common.sh` prints, to the audience given, the agent name, the advertised URL and page URL from the environment and the secret text given, defaults an unset advertised URL to the page URL, and warns on a localhost advertised URL that a caller in Docker cannot reach it | Bash |
 | `./scripts/validate.sh --tck` | The above, then the A2A TCK against a second agent on port 8022 under the `tck` and `e2e` profiles | as above, plus network to clone the TCK |
 
-`validate.sh` refuses to start when port 8021 or 8022 already answers a health check, so it never
-validates a stale agent left over from an interrupted run. Agent logs land in
-`target/validate-<port>.log`.
+`validate.sh` refuses to start when a port it needs (8021, 8023, or 8022 with `--tck`) already
+answers a health check, so it never validates a stale agent left over from an interrupted run. Agent
+logs land in `target/validate-<port>.log`.
 
 ## Unit
 
@@ -29,7 +32,7 @@ Each class mirrors the main class it tests.
 
 | Test | Pins |
 |---|---|
-| `PdfStatementParserTest` | On the anonymized statement: the charge date and billing month, all 24 rows adding up to the statement's total, distinct ids, a foreign purchase in shekels, an installment, a standing order, and a domestic row read from the second page. Altered text lines fail naming the problem: a missing row (the section total no longer matches, both sums named), an impossible date such as 31/02, a charge with no purchase date, a cell reaching across two columns, a statement that ends before a section's total line, no charge-date label, and no transaction section at all. |
+| `PdfStatementParserTest` | On the anonymized statement: the charge date and billing month, all 24 rows adding up to the statement's total, distinct ids, a foreign purchase in shekels, an installment, a standing order, and a domestic row read from the second page. Altered text lines fail naming the problem: a missing row (the section total does not match, both sums named), an impossible date such as 31/02, a charge with no purchase date, a cell reaching across two columns, a statement that ends before a section's total line, no charge-date label, and no transaction section at all. |
 | `HebrewMonthsTest` | Hebrew month name and year to a `YearMonth`; an unknown label fails naming it. |
 | `StatementFolderTest` | Lookup by billing month; a file added after the first scan is found; a download-style name that disagrees with the content fails naming both months, in the PDF shape `2026-09.pdf` and in the export shape `1258_09_2026.pdf`; an informal name is indexed by content; two files for one month fail naming both; an impossible month in the name fails; a folder that does not exist yet is empty until the first upload creates it, while a path that is a file fails naming it; an Excel `~$` lock file and other extensions are ignored; an upper-case `.PDF` is indexed; a file that is not a PDF fails naming it. |
 | `StatementFoldersTest` | Two people with the same month see only their own file; a lookup for a person without a folder is empty and creates none; a path-like user id is refused; a missing root fails naming it. |
@@ -40,7 +43,7 @@ Each class mirrors the main class it tests.
 | `KeywordMerchantClassifierTest` | The `e2e` profile's keyword table knows every merchant of the test statement except its gym; known and unknown merchants get stable answers. |
 | `SpringAiMerchantClassifierTest` | With a fake `ChatModel`: the prompt carries each category with its guide, and the merchants, and the structured answer parses; an answer with no text fails naming the finish reason and the output-limit property. |
 | `LlmPropertiesTest` | A blank `APP_LLM_MODEL`, one without both halves of `provider:model`, and one naming a provider outside `anthropic` and `openai` each fail naming the variable and what is wrong; the split is at the first colon, so a model id may contain colons. |
-| `LlmConfigurationTest` | Booting the application: a blank `APP_LLM_MODEL` fails naming it; `fake:m` is refused before any bean exists; `anthropic:m` without a key fails naming `ANTHROPIC_API_KEY`, and with one it selects the Anthropic `ChatModel` with model `m`; the `e2e` profile boots on `KeywordMerchantClassifier` with no model setting, binds no `LlmProperties` and selects no `ChatModel`. The key check alone: `anthropic` and `openai` without a key fail naming `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`; `anthropic` with a key passes; any other provider reaching it fails as unreachable. |
+| `LlmConfigurationTest` | Booting the application: a blank `APP_LLM_MODEL` fails naming it; `fake:m` is refused before any bean exists; `anthropic:m` without a key fails naming `APP_LLM_API_KEY`, and with one it selects the Anthropic `ChatModel` with model `m` and hands it the key; the `e2e` profile boots on `KeywordMerchantClassifier` with no model setting, binds no `LlmProperties` and selects no `ChatModel`. The key check alone: a blank key fails naming `APP_LLM_API_KEY` and the provider; a set one passes. |
 | `CategoryTest`, `TransactionTest` | Wire values equal the published taxonomy; unknown, blank or omitted model labels map to `uncategorized` and wire values round-trip; categorizing keeps every statement field. |
 | `MonthRequestTest` | Data-part and text-part months are fetches; `{"action": "continue"}` is a continue; `2026-9`, `09/2026`, `2026-13` and a message without a usable part are `InvalidParams`. |
 | `ArtifactMapperTest` | Every artifact field is present, confidence as its level name, nullables are explicit nulls; batches split at 25 and carry `month` and `currency`; an empty statement is one empty batch. |
@@ -51,7 +54,7 @@ Each class mirrors the main class it tests.
 | `CallersTest`, `UserIdsTest` | The exact secret selects its caller and a prefix, suffix or other case selects nothing; plain ids are folder names while empty, dotted, path-like or over-long ids are refused. |
 | `A2APropertiesTest` | Auth required without a caller fails naming the callers file; auth off needs none; two callers with one secret are refused; a caller with a blank field fails naming it. |
 | `AgentCardConfigurationTest` | JSON-RPC interface, streaming and the skill; with auth required, the `google` OpenID Connect scheme and the `caller` API key scheme in `X-Caller-Secret`, required together; nothing with auth off. |
-| `CallerSecretFilterTest` | A registered secret passes with the caller attached to the request; a missing, wrong or differently cased secret, or the secret in the old Authorization place, is 401 with `WWW-Authenticate: X-Caller-Secret`; the card, health, the statements page, its API and the auth config are open. |
+| `CallerSecretFilterTest` | A registered secret passes with the caller attached to the request; a missing, wrong or differently cased secret, or the secret sent as the bearer token instead, is 401 with `WWW-Authenticate: X-Caller-Secret`; the card, health, the statements page, its API and the auth config are open. |
 | `StatementsEndpointTest` | Over real HTTP with auth on, a temporary root and a test signing key: the page and `/api/auth/config` are open; the API without a token, with a non-bearer header, with a token for another client or with garbage is 401 with a problem document; an upload lands in the person's folder byte for byte under its content's download name, whatever it was called, is listed to them and not to another person; a path-traversal name lands in the person's folder only; the same month twice and non-PDF content are 400 problem documents naming the cause; an upload over the multipart limit is 413; an upload refused for non-PDF content or its size creates nothing; a listed file is deleted with 204 and deleting an unlisted name is a 400 naming it. |
 | `CallContextsTest` | The SDK call context carries the headers (looked up without regard to case), the admitted caller, tenant, requested extensions and protocol version with an unauthenticated SDK user; no caller key without a caller; tenant path trimming. |
 | `SseStreamWriterTest` | Each event is one frame with `data:` and `id:`; a client gone mid-stream and a frame that cannot be serialized both cancel the subscription and the event consumer and release the request thread; a cancel callback that throws still releases it. |
