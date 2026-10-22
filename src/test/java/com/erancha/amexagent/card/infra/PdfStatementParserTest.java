@@ -44,6 +44,7 @@ public class PdfStatementParserTest {
   void parse_fixture_readsAForeignPurchaseInShekels() {
     Transaction t = parser.parse(FIXTURE).transactions().get(0);
     assertThat(t.rawMerchant()).isEqualTo("NETFLIX.COM 519479");
+    assertThat(t.sector()).isNull();
     assertThat(t.transactionDate()).isEqualTo(LocalDate.of(2026, 8, 9));
     assertThat(t.chargeDate()).isEqualTo(LocalDate.of(2026, 10, 2));
     assertThat(t.amount()).isEqualByComparingTo("69.90");
@@ -58,6 +59,7 @@ public class PdfStatementParserTest {
   void parse_fixture_readsAnInstallment() {
     Transaction t = parser.parse(FIXTURE).transactions().get(2);
     assertThat(t.rawMerchant()).isEqualTo("דר יוסי משה מזרחי");
+    assertThat(t.sector()).isEqualTo("שרות רפואי");
     assertThat(t.transactionDate()).isEqualTo(LocalDate.of(2026, 1, 12));
     assertThat(t.amount()).isEqualByComparingTo("1166.00");
     assertThat(t.installment()).isEqualTo(new Installment(9, 12));

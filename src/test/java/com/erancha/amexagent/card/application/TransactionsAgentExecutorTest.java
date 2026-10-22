@@ -76,7 +76,9 @@ class TransactionsAgentExecutorTest {
   /** Statements of USER alone; another person's folder is always empty. */
   private TransactionsAgentExecutor executor(Map<YearMonth, Statement> covered) {
     MerchantCategorizer categorizer = new MerchantCategorizer(
-        raws -> raws.stream().map(r -> new MerchantCategory(r, r, "other", 0.9)).toList(),
+        merchants -> merchants.stream()
+            .map(m -> new MerchantCategory(m.rawMerchant(), m.rawMerchant(), "other", 0.9))
+            .toList(),
         0.85, 0.6, 40);
     UserResolver users = context -> {
       String sub = signedIn.get();
@@ -297,7 +299,7 @@ class TransactionsAgentExecutorTest {
     List<Transaction> rows = new ArrayList<>();
     for (int i = 0; i < 60; i++) {
       rows.add(Transaction.parsed("id" + i, LocalDate.of(2026, 9, 1), LocalDate.of(2026, 10, 2),
-          "merchant " + i, BigDecimal.TEN, null, null, false, false, null));
+          "merchant " + i, null, BigDecimal.TEN, null, null, false, false, null));
     }
     Statement big = new Statement(YearMonth.of(2026, 10), "ILS", LocalDate.of(2026, 10, 2), rows);
     List<Event> events = run(executor(Map.of(YearMonth.of(2026, 10), big)),

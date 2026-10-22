@@ -222,12 +222,17 @@ type (embedding, image, moderation, audio speech and transcription) is set to `n
 chat only, and the OpenAI starter would otherwise create models that need libraries absent from the
 runtime classpath.
 
-`SpringAiMerchantClassifier` sends the taxonomy and one batch of raw merchant strings in a single
+`SpringAiMerchantClassifier` sends the taxonomy and one batch of raw merchant strings, each beside
+the sector label the statement prints for it (`[sector: שרות רפואי]`), in a single
 structured-output call and reads back, per merchant, a display name, a category and a confidence.
-Each category carries a guide in `Category` (the kinds of merchants it holds), and the prompt says
-a category is what the money buys, not how it is paid: a gym paid by standing order is health, a
-streaming service entertainment. It also warns against judging a shop by a generic word in its
-name and asks for `uncategorized` over a guess.
+The sector is the issuer's own hint about what the business does, and the prompt tells the model
+to lean on it where the merchant string alone says little, such as a doctor's name billed in
+installments. Each category carries a guide in `Category` (the kinds of merchants it holds), and
+the prompt says a category is what the money buys, not how it is paid: a gym paid by standing
+order is health, a streaming service entertainment. It also warns against judging a shop by a
+generic word in its name and asks for `uncategorized` over a guess. A display name stays short
+when the brand explains itself (`Netflix`) and keeps the words that say what the business does
+when it does not (`Harel health insurance`), so a row reads as more than a bare brand.
 Claude may reason before it answers. Spring AI then reports the reasoning as a generation of its
 own ahead of the answer, so the classifier reads the last generation, never the first, and
 converts its text itself. The reasoning tokens also count against the call's output limit, so
@@ -270,8 +275,8 @@ horizontal extent of its non-blank glyphs. `PdfStatementParser` interprets those
 | Sections | `רכישות בחו"ל` (purchases abroad) and `עסקות שחויבו / זוכו - בארץ` (domestic), each from its title line to its `סה"כ חיוב לתאריך` total line; a section continuing on the next page repeats its title there |
 | Columns | every column is right-aligned, so a cell belongs to the column whose right edge it ends at, within 4 points; a chunk reaching across a column boundary fails the parse |
 | Rows | lines with a `DD/MM/YY` purchase date in the date column; a charge without one fails |
-| Domestic row | date, card presence (`ה.קבע` marks a standing order), merchant, sector, purchase amount, charge, and `תשלום N מתוך M` for an installment |
-| Abroad row | date, merchant, the original amount with its currency symbol, conversion columns, and the charge in `₪`; the city line under the merchant is skipped |
+| Domestic row | date, card presence (`ה.קבע` marks a standing order), merchant, sector (the issuer's label for the business, kept on the row for the categorizer), purchase amount, charge, and `תשלום N מתוך M` for an installment |
+| Abroad row | date, merchant, the original amount with its currency symbol, conversion columns, and the charge in `₪`; the city line under the merchant is skipped; the section prints no sector |
 | Margins | text left of x 130 or right of x 525 is decoration (side banners, page numbers) |
 
 The charges of each section must add up to its printed total, so a row that is lost or misread
@@ -353,12 +358,13 @@ exemption, and `StatementsEndpoint.API` the API's path for its mapping and the s
 `MerchantCategorizer` keys every row by `MerchantNormalizer.key(rawMerchant)`: trimmed, whitespace
 collapsed, lower-cased, trailing branch numbers and company-form words (`בעמ`, `בע"מ` with either
 gershayim spelling, `ltd`, `inc`, `llc`) removed. Keys are cached for the process lifetime. Unseen
-keys go to the classifier in batches of `APP_CATEGORIZER_BATCH_SIZE`; `categorize` is
-synchronized, so each key is classified once per process and concurrent tasks serialize their
-model calls. The model's score in `[0, 1]` becomes the row's confidence, `high`, `medium` or `low`,
-by the two thresholds above; a `low` row keeps the model's category as a guess. An answer outside
-the taxonomy or the score range becomes `uncategorized` with `low` confidence; a classifier that
-answers a different number of merchants than it was asked fails the task.
+keys go to the classifier in batches of `APP_CATEGORIZER_BATCH_SIZE`, each as the raw string and
+statement sector of its first row; `categorize` is synchronized, so each key is classified once per
+process and concurrent tasks serialize their model calls. The model's score in `[0, 1]` becomes the
+row's confidence, `high`, `medium` or `low`, by the two thresholds above; a `low` row keeps the
+model's category as a guess. An answer outside the taxonomy or the score range becomes
+`uncategorized` with `low` confidence; a classifier that answers a different number of merchants
+than it was asked fails the task.
 
 ## Library behavior
 

@@ -198,14 +198,15 @@ public class PdfStatementParser implements StatementParser {
         throw fail(src, line, "unknown currency symbol '" + m.group(1) + "'");
       }
       boolean foreign = !StatementCurrency.CODE.equals(currency);
-      return Transaction.parsed(id, purchased, chargeDate, merchant, charge,
+      return Transaction.parsed(id, purchased, chargeDate, merchant, null, charge,
           foreign ? amount(m.group(2), line, src) : null, foreign ? currency : null, false, true,
           null);
     }
+    String sector = required(cells, Column.SECTOR, line, src);
     // A domestic row leaves the detail and presence cells empty when they do not apply.
     String detail = cells.getOrDefault(Column.DETAIL, "");
     String presence = cells.getOrDefault(Column.PRESENCE, "");
-    return Transaction.parsed(id, purchased, chargeDate, merchant, charge, null, null,
+    return Transaction.parsed(id, purchased, chargeDate, merchant, sector, charge, null, null,
         presence.equals(layout.standingOrder()), false, installment(detail, line, src));
   }
 

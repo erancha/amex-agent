@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.erancha.amexagent.card.api.Category;
 import com.erancha.amexagent.card.api.MerchantCategory;
+import com.erancha.amexagent.card.api.MerchantQuery;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
@@ -17,8 +18,13 @@ import org.springframework.ai.chat.model.Generation;
 import org.springframework.ai.chat.prompt.Prompt;
 import reactor.core.publisher.Flux;
 
-/** Verifies the prompt carries every merchant and category guide; the answer maps to records. */
+/**
+ * Verifies the prompt carries every merchant with its sector and every category guide; the answer
+ * maps to records.
+ */
 class SpringAiMerchantClassifierTest {
+  private static final List<MerchantQuery> MERCHANTS = List.of(
+      new MerchantQuery("סופר פארם בעמ 123", null), new MerchantQuery("פז יהוד", "דלק"));
   private static final String ANSWER = """
       [{"rawMerchant":"סופר פארם בעמ 123","merchant":"Super-Pharm","category":"health",
         "confidence":0.92},
@@ -54,9 +60,10 @@ class SpringAiMerchantClassifierTest {
     FakeChatModel fake = FakeChatModel.answering(ANSWER);
     SpringAiMerchantClassifier classifier = new SpringAiMerchantClassifier(ChatClient.create(fake));
 
-    List<MerchantCategory> out = classifier.classify(List.of("סופר פארם בעמ 123", "פז יהוד"));
+    List<MerchantCategory> out = classifier.classify(MERCHANTS);
 
-    assertThat(fake.seenPrompt.get()).contains("סופר פארם בעמ 123").contains("פז יהוד")
+    assertThat(fake.seenPrompt.get())
+        .contains("Merchants:\nסופר פארם בעמ 123\nפז יהוד [sector: דלק]\n")
         .contains("- health: " + Category.HEALTH.guide()).contains("uncategorized");
     assertThat(out).containsExactly(
         new MerchantCategory("סופר פארם בעמ 123", "Super-Pharm", "health", 0.92),
@@ -70,7 +77,7 @@ class SpringAiMerchantClassifierTest {
     var classifier =
         new SpringAiMerchantClassifier(ChatClient.create(new FakeChatModel(thoughtThenAnswered)));
 
-    assertThat(classifier.classify(List.of("סופר פארם בעמ 123", "פז יהוד"))).hasSize(2);
+    assertThat(classifier.classify(MERCHANTS)).hasSize(2);
   }
 
   @Test
@@ -79,7 +86,7 @@ class SpringAiMerchantClassifierTest {
         ChatGenerationMetadata.builder().finishReason("max_tokens").build())));
     var classifier = new SpringAiMerchantClassifier(ChatClient.create(new FakeChatModel(truncated)));
 
-    assertThatThrownBy(() -> classifier.classify(List.of("סופר פארם בעמ 123", "פז יהוד")))
+    assertThatThrownBy(() -> classifier.classify(MERCHANTS))
         .isInstanceOf(IllegalStateException.class)
         .hasMessageContaining("max_tokens")
         .hasMessageContaining("max-tokens")

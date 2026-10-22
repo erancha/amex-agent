@@ -19,7 +19,7 @@ import org.junit.jupiter.api.Test;
 class ArtifactMapperTest {
   private static Transaction tx(int i) {
     return Transaction.parsed("20193" + String.format("%04d", i), LocalDate.of(2026, 9, 28),
-        LocalDate.of(2026, 10, 2), "סופר פארם בעמ 123", new BigDecimal("86.90"),
+        LocalDate.of(2026, 10, 2), "סופר פארם בעמ 123", null, new BigDecimal("86.90"),
         new BigDecimal("29.99"), "USD", false, true, new Installment(3, 10))
         .withCategory("Super-Pharm", Category.HEALTH, Confidence.MEDIUM);
   }
@@ -39,7 +39,8 @@ class ArtifactMapperTest {
   @Test
   void transaction_nullablesAreExplicitNulls() {
     Transaction plain = Transaction.parsed("1", LocalDate.of(2026, 9, 1),
-        LocalDate.of(2026, 10, 2), "x", new BigDecimal("1.00"), null, null, false, false, null);
+        LocalDate.of(2026, 10, 2), "x", null, new BigDecimal("1.00"), null, null, false, false,
+        null);
     Map<String, Object> m = ArtifactMapper.transaction(plain);
     assertThat(m).containsKey("originalAmount").containsKey("installment");
     assertThat(m.get("originalAmount")).isNull();

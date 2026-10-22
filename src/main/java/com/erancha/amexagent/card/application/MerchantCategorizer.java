@@ -4,6 +4,7 @@ import com.erancha.amexagent.card.api.Category;
 import com.erancha.amexagent.card.api.Confidence;
 import com.erancha.amexagent.card.api.MerchantCategory;
 import com.erancha.amexagent.card.api.MerchantClassifier;
+import com.erancha.amexagent.card.api.MerchantQuery;
 import com.erancha.amexagent.card.api.Transaction;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -17,13 +18,13 @@ import org.slf4j.LoggerFactory;
 
 /**
  * Assigns a display name, category and confidence to parsed transactions. Merchants are keyed by
- * MerchantNormalizer; unseen keys are classified in batches of batchSize through the classifier.
- * Each answer is paired with its merchant by the echoed raw merchant. The model's score becomes
- * HIGH from highConfidence up, MEDIUM from mediumConfidence up, else LOW; a LOW answer keeps its
- * category as the agent's best guess. A merchant left without a matching answer, or an answer
- * outside the taxonomy or the [0,1] score range, is UNCATEGORIZED and LOW. categorize is
- * synchronized so each merchant key is classified once per process; concurrent callers serialize
- * their model calls.
+ * MerchantNormalizer; unseen keys are classified in batches of batchSize through the classifier,
+ * each sent as the raw string and statement sector of its first row. Each answer is paired with
+ * its merchant by the echoed raw merchant. The model's score becomes HIGH from highConfidence up,
+ * MEDIUM from mediumConfidence up, else LOW; a LOW answer keeps its category as the agent's best
+ * guess. A merchant left without a matching answer, or an answer outside the taxonomy or the
+ * [0,1] score range, is UNCATEGORIZED and LOW. categorize is synchronized so each merchant key is
+ * classified once per process; concurrent callers serialize their model calls.
  */
 public class MerchantCategorizer {
   private record Decision(String merchant, Category category, Confidence confidence) {}
@@ -53,24 +54,25 @@ public class MerchantCategorizer {
   }
 
   public synchronized List<Transaction> categorize(List<Transaction> parsed) {
-    // Key: normalized merchant. Value: one raw example to send to the classifier.
-    Map<String, String> unseen = new LinkedHashMap<>();
+    // Key: normalized merchant. Value: one example row's query to send to the classifier.
+    Map<String, MerchantQuery> unseen = new LinkedHashMap<>();
     for (Transaction t : parsed) {
       String key = MerchantNormalizer.key(t.rawMerchant());
       if (!cache.containsKey(key)) {
-        unseen.putIfAbsent(key, t.rawMerchant());
+        unseen.putIfAbsent(key, new MerchantQuery(t.rawMerchant(), t.sector()));
       }
     }
-    List<String> raws = new ArrayList<>(unseen.values());
-    for (int from = 0; from < raws.size(); from += batchSize) {
-      List<String> batch = raws.subList(from, Math.min(from + batchSize, raws.size()));
+    List<MerchantQuery> queries = new ArrayList<>(unseen.values());
+    for (int from = 0; from < queries.size(); from += batchSize) {
+      List<MerchantQuery> batch = queries.subList(from, Math.min(from + batchSize, queries.size()));
       List<MerchantCategory> answers = classifier.classify(batch);
       if (answers.size() != batch.size()) {
         throw new IllegalStateException("Classifier answered " + answers.size()
             + " merchants for a batch of " + batch.size());
       }
       Map<String, MerchantCategory> byRaw = matchByEcho(batch, answers);
-      for (String raw : batch) {
+      for (MerchantQuery query : batch) {
+        String raw = query.rawMerchant();
         cache.put(MerchantNormalizer.key(raw), decide(raw, byRaw.get(raw)));
       }
     }
@@ -86,10 +88,13 @@ public class MerchantCategorizer {
    *
    * @return key: requested raw merchant; value: the first answer echoing it
    */
-  private static Map<String, MerchantCategory> matchByEcho(List<String> batch,
+  private static Map<String, MerchantCategory> matchByEcho(List<MerchantQuery> batch,
       List<MerchantCategory> answers) {
     // HashSet, not Set.copyOf: an omitted echo arrives as null and must test as unrequested.
-    Set<String> requested = new HashSet<>(batch);
+    Set<String> requested = new HashSet<>();
+    for (MerchantQuery query : batch) {
+      requested.add(query.rawMerchant());
+    }
     Map<String, MerchantCategory> byRaw = new HashMap<>();
     for (MerchantCategory answer : answers) {
       if (!requested.contains(answer.rawMerchant())

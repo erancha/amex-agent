@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.erancha.amexagent.card.api.Category;
 import com.erancha.amexagent.card.api.Confidence;
 import com.erancha.amexagent.card.api.MerchantCategory;
+import com.erancha.amexagent.card.api.MerchantQuery;
 import com.erancha.amexagent.card.api.Transaction;
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -17,12 +18,17 @@ import org.junit.jupiter.api.Test;
 
 /**
  * Verifies caching by normalized merchant, batching of unseen merchants, pairing answers by echoed
- * merchant, omitted answer fields, and the confidence levels.
+ * merchant, the statement sector reaching the classifier, omitted answer fields, and the
+ * confidence levels.
  */
 class MerchantCategorizerTest {
   private static Transaction tx(String id, String raw) {
+    return tx(id, raw, null);
+  }
+
+  private static Transaction tx(String id, String raw, String sector) {
     return Transaction.parsed(id, LocalDate.of(2026, 9, 1), LocalDate.of(2026, 10, 2), raw,
-        new BigDecimal("10.00"), null, null, false, false, null);
+        sector, new BigDecimal("10.00"), null, null, false, false, null);
   }
 
   @Test
@@ -37,13 +43,26 @@ class MerchantCategorizerTest {
         tx("1", "סופר פארם בעמ 123"), tx("2", "סופר פארם בעמ 456"), tx("3", "פז יהוד")));
 
     assertThat(classifier.batches).hasSize(1);
-    assertThat(classifier.batches.get(0)).containsExactly("סופר פארם בעמ 123", "פז יהוד");
+    assertThat(classifier.batches.get(0)).extracting(MerchantQuery::rawMerchant)
+        .containsExactly("סופר פארם בעמ 123", "פז יהוד");
     assertThat(out).extracting(Transaction::category)
         .containsExactly(Category.HEALTH, Category.HEALTH, Category.TRANSPORT);
     assertThat(out.get(1).merchant()).isEqualTo("Super-Pharm");
 
     categorizer.categorize(List.of(tx("4", "פז יהוד 0421")));
     assertThat(classifier.batches).hasSize(1);
+  }
+
+  @Test
+  void categorize_handsTheStatementSectorToTheClassifierBesideTheMerchant() {
+    RecordingClassifier classifier = new RecordingClassifier(Map.of("דר יוסי משה מזרחי",
+        new MerchantCategory("דר יוסי משה מזרחי", "Dr. Yossi Mizrahi", "health", 0.95)));
+
+    new MerchantCategorizer(classifier, 0.85, 0.6, 40)
+        .categorize(List.of(tx("1", "דר יוסי משה מזרחי", "שרות רפואי")));
+
+    assertThat(classifier.batches.get(0))
+        .containsExactly(new MerchantQuery("דר יוסי משה מזרחי", "שרות רפואי"));
   }
 
   @Test

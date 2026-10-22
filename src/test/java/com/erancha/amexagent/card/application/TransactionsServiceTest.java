@@ -17,8 +17,8 @@ import org.junit.jupiter.api.Test;
 /** Verifies the service returns the categorized statement, or empty when no file covers it. */
 class TransactionsServiceTest {
   private final Transaction row = Transaction.parsed("1", LocalDate.of(2026, 9, 1),
-      LocalDate.of(2026, 10, 2), "פז יהוד", new BigDecimal("250.00"), null, null, false, false,
-      null);
+      LocalDate.of(2026, 10, 2), "פז יהוד", "דלק", new BigDecimal("250.00"), null, null, false,
+      false, null);
   private final Statement statement = new Statement(YearMonth.of(2026, 10), "ILS",
       LocalDate.of(2026, 10, 2), List.of(row));
   private final MerchantCategorizer categorizer = new MerchantCategorizer(new RecordingClassifier(

@@ -99,6 +99,7 @@ public class ExcelStatementParser implements StatementParser {
         purchaseDate(row.getCell(col.get(layout.headerPurchaseDate())), row, src),
         chargeDate,
         cellText(row, col.get(layout.headerMerchant())),
+        null,
         chargeAmount,
         foreign ? purchaseAmount : null,
         foreign ? purchaseCurrency : null,

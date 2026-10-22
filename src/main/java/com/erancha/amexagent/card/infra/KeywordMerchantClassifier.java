@@ -2,6 +2,7 @@ package com.erancha.amexagent.card.infra;
 
 import com.erancha.amexagent.card.api.MerchantCategory;
 import com.erancha.amexagent.card.api.MerchantClassifier;
+import com.erancha.amexagent.card.api.MerchantQuery;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -42,8 +43,8 @@ public class KeywordMerchantClassifier implements MerchantClassifier {
   }
 
   @Override
-  public List<MerchantCategory> classify(List<String> rawMerchants) {
-    return rawMerchants.stream().map(raw -> {
+  public List<MerchantCategory> classify(List<MerchantQuery> merchants) {
+    return merchants.stream().map(MerchantQuery::rawMerchant).map(raw -> {
       String lower = raw.toLowerCase(Locale.ROOT);
       return KNOWN.entrySet().stream()
           .filter(e -> lower.contains(e.getKey()))
