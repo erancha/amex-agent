@@ -190,7 +190,8 @@ class TransactionsAgentExecutorTest {
     assertThat(last.status().state()).isEqualTo(TaskState.TASK_STATE_INPUT_REQUIRED);
     assertThat(last.isFinalOrInterrupted()).isTrue();
     Message m = last.status().message();
-    assertThat(m.parts()).anySatisfy(p -> assertThat(p).isInstanceOf(TextPart.class));
+    // The text names the condition alone: the caller's page renders the action.
+    assertThat(((TextPart) m.parts().get(0)).text()).isEqualTo("No statement covers 2026-09.");
     DataPart data = (DataPart) m.parts().stream().filter(DataPart.class::isInstance)
         .findFirst().orElseThrow();
     assertThat(asMap(data)).containsEntry("reason", "statement-missing")

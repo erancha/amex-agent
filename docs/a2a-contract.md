@@ -125,7 +125,7 @@ resume needs.
 
 ```json
 {"role": "ROLE_AGENT", "parts": [
-  {"text": "No statement covers 2026-09. Load it on the statements page and continue."},
+  {"text": "No statement covers 2026-09."},
   {"data": {"reason": "statement-missing", "month": "2026-09", "page": "/statements.html",
             "user": "103582367281946"}}
 ]}

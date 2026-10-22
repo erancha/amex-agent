@@ -95,8 +95,7 @@ public class TransactionsAgentExecutor implements AgentExecutor {
     if (statement.isEmpty()) {
       log.info("Task {}: no statement covers {}", context.getTaskId(), month);
       emitter.requiresInput(emitter.newAgentMessage(List.of(
-          new TextPart("No statement covers " + month + ". Load it on the statements page and "
-              + "continue."),
+          new TextPart("No statement covers " + month + "."),
           new DataPart(Map.of("reason", REASON_STATEMENT_MISSING, "month", month.toString(),
               "page", statementsPage, "user", user.sub()))),
           null));
