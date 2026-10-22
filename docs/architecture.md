@@ -34,7 +34,7 @@ Packages under `src/main/java/com/erancha/amexagent/`:
 | `card/application` | `TransactionsAgentExecutor` | The SDK `AgentExecutor` for the skill: names the person from the forwarded token, then drives submitted, working, artifact chunks, completed, or one of the two pauses (input-required, auth-required) and the `continue` resume by the same person. |
 | `card/application` | `MonthRequest`, `TransactionsService`, `ArtifactMapper` | Validate the request, run the use case, shape transactions into 25-row artifact data parts. |
 | `card/application` | `MerchantCategorizer`, `MerchantNormalizer` | Cached, batched categorization keyed by a normalized merchant string. |
-| `card/infra` | `StatementFolders`, `StatementFolder`, `StatementParser`, `PdfTextLines`, `PdfStatementParser`, `PdfStatementLayout`, `ExcelStatementParser`, `ExcelStatementLayout`, `HebrewMonths`, `StatementCurrency`, `StatementFormatException` | One folder per person under the statements root; index a folder's statement files by billing month, parse the Amex Israel PDF statement or Excel export, and load a checked upload into the person's folder. |
+| `card/infra` | `StatementFolders`, `StatementFolder`, `StatementParser`, `PdfTextLines`, `PdfStatementParser`, `PdfStatementLayout`, `StatementCurrency`, `StatementFormatException` | One folder per person under the statements root; index a folder's statement files by billing month, parse the Amex Israel PDF statement, and load a checked upload into the person's folder. |
 | `card/infra` | `SpringAiMerchantClassifier`, `KeywordMerchantClassifier`, `LlmConfiguration`, `LlmProperties`, `LlmModelEnvironmentPostProcessor` | The two classifier implementations, the choice between them by Spring profile, the `app.llm` settings, and the split of `APP_LLM_MODEL` into provider and model before auto-configuration. |
 | `card/api` | `StatementStore`, `StoredStatement`, `StatementRejectedException` | The port the statements page loads and deletes files through, and its refusal. |
 | `card` | `CardConfiguration` | Assembles the pipeline; its executor bean is inactive under the `tck` profile. `StatementFolders` is both the `StatementSource` and the `StatementStore`. |
@@ -249,19 +249,17 @@ caller's own end-to-end tests run under the `e2e` profile to use it.
 `APP_STATEMENTS_DIR` is a root with one folder per person, named by their Google account id;
 `StatementFolders` hands out one `StatementFolder` per person, created by their first upload (a
 lookup for a person without a folder is simply empty). `StatementFolder` indexes the files of one
-folder by the billing month their content declares. The card site offers each month as a PDF
-statement and as an Excel export; both are read, each by its own `StatementParser`, chosen by
-extension (`.pdf` or `.xlsx`, in any case):
+folder by the billing month their content declares. A file with the `.pdf` extension (in any case)
+is a statement, read by the `StatementParser` for the card site's PDF statement:
 
-- Files with other extensions and Excel's `~$` lock files are skipped. Any other file that fails
-  to parse fails the lookup with a message that starts with its file name.
+- Files with other extensions are skipped. A `.pdf` file that fails to parse fails the lookup
+  with a message that starts with its file name.
 - Every lookup rescans the folder, so a file downloaded while a task waits is found on `continue`.
   A file is re-parsed only when its modification time changes.
-- Two files for one billing month fail the lookup, naming both files, even when one is the PDF and
-  the other the Excel export of the same month: silently preferring one would hide a mismatch.
-- A file named like a card-site download, `<YYYY>-<MM>.pdf` or `<last4>_<MM>_<YYYY>.xlsx`, whose
-  name and content disagree fails, naming the file and both months. Other names are indexed by
-  content alone.
+- Two files for one billing month fail the lookup, naming both files: silently preferring one
+  would hide a mismatch.
+- A file named like a card-site download, `<YYYY>-<MM>.pdf`, whose name and content disagree
+  fails, naming the file and both months. Other names are indexed by content alone.
 
 ### PDF statement
 
@@ -289,27 +287,6 @@ rows), is a real statement with the holder's name, address, account and card num
 doctor's name replaced by `scripts/anonymize-statement.py`. The script redraws each replaced word
 with its character spacing adjusted to the original width, so text extraction sees the same
 columns as in the real file; the mapping of private words to stand-ins never enters the repo.
-
-### Excel export
-
-`ExcelStatementParser` is driven by `ExcelStatementLayout.AMEX_ISRAEL`, which names the sheet, the
-anchor cells and every header label, so a changed export fails with a message naming the missing
-label or the offending cell instead of producing wrong rows:
-
-| Element | Location in the export |
-|---|---|
-| Sheet | the single sheet `פירוט עסקאות`, right-to-left, 8 columns |
-| Billing month | cell C2: Hebrew month name and year (`אוקטובר 2026`) |
-| Card | cell A5: card product name and last four digits |
-| Charge date | cell H6: `לחיוב ב-DD.MM`, year taken from the billing month |
-| Section header | `עסקאות למועד חיוב` |
-| Column headers | `תאריך רכישה`, `שם בית עסק`, `סכום עסקה`, `מטבע עסקה`, `סכום חיוב`, `מטבע חיוב`, `מס' שובר`, `פירוט נוסף`; located by label, not by row number |
-| Data rows | until the total row; purchase date as text `DD.MM.YY`, a day the month lacks rejected; amounts numeric; purchase currencies as symbols (`₪`, `$`, `€`, `£`); charge currency always `₪`; voucher as a 9-digit string, used as the row's id |
-| Detail column | empty, `הוראת קבע` (standing order), `בוצע בחו"ל` (made abroad), or `תשלום N מתוך M` (installment N of M) |
-| Total row | label `סה"כ לחיוב החודש בכרטיס בש"ח`; parsing stops here |
-| Trailer | the deferred-charges note and the legal block after the total; ignored |
-
-Every test runs on the PDF statement; the Excel reader has no tests.
 
 ## Statements page
 

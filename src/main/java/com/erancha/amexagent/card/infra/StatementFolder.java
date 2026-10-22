@@ -27,47 +27,43 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Indexes the statement files in one directory by billing month. A file whose extension (any case)
- * has a parser is a statement, except Excel's ~$ lock files; a file that fails to parse fails the
- * lookup naming it. Every lookup rescans the directory so a file dropped in while a task waits for
- * input is found on the next request; a file is re-parsed only when its modification time changes.
+ * Indexes the statement files in one directory by billing month. A file with the .pdf extension
+ * (any case) is a statement; a file that fails to parse fails the lookup naming it. Every lookup
+ * rescans the directory so a file dropped in while a task waits for input is found on the next
+ * request; a file is re-parsed only when its modification time changes.
  * The directory is one person's and may not exist yet: it holds nothing until the first upload
  * creates it.
  *
- * Loading a statement stages the upload under a name no parser claims, parses it, and renames it
- * to the download name of the billing month its content declares, whatever the upload was called,
- * only once it is known to be a readable statement for a month no other file covers, so a lookup
- * never sees a half-written or unreadable upload. Removing accepts only a name list() returns, so
- * the caller's name never reaches outside the folder or a file that is not a statement.
+ * Loading a statement stages the upload under a name no lookup treats as a statement, parses it,
+ * and renames it to the download name of the billing month its content declares, whatever the
+ * upload was called, only once it is known to be a readable statement for a month no other file
+ * covers, so a lookup never sees a half-written or unreadable upload. Removing accepts only a name
+ * list() returns, so the caller's name never reaches outside the folder or a file that is not a
+ * statement.
  */
 public class StatementFolder {
   private static final Logger log = LoggerFactory.getLogger(StatementFolder.class);
-  // The card site's download names: <YYYY>-<MM>.pdf for a statement, <last4>_<MM>_<YYYY>.xlsx for
-  // an export. Either shape is checked against the content whatever its extension.
-  private static final List<Pattern> DOWNLOAD_NAMES = List.of(
-      Pattern.compile("^(?<year>\\d{4})-(?<month>\\d{2})\\.[^.]+$"),
-      Pattern.compile("^\\d{4}_(?<month>\\d{2})_(?<year>\\d{4})\\.[^.]+$"));
+  // The card site's download name, <YYYY>-<MM>.pdf, is checked against the content.
+  private static final Pattern DOWNLOAD_NAME =
+      Pattern.compile("^(?<year>\\d{4})-(?<month>\\d{2})\\.[^.]+$");
   private static final String PDF = ".pdf";
   private static final byte[] PDF_SIGNATURE = "%PDF-".getBytes(StandardCharsets.US_ASCII);
-  // Excel holds an open workbook with a hidden <~$name> owner file beside it.
-  private static final String LOCK_FILE_PREFIX = "~$";
 
   private record Parsed(FileTime modified, Statement statement) {}
 
   private record Indexed(Path file, Statement statement) {}
 
   private final Path dir;
-  // Key: lower-case file extension with its dot. Value: the parser for that format.
-  private final Map<String, StatementParser> parsers;
+  private final StatementParser parser;
   // Key: file path. Value: the parse of that file at the recorded modification time.
   private final Map<Path, Parsed> cache = new HashMap<>();
 
-  public StatementFolder(Path dir, Map<String, StatementParser> parsers) {
+  public StatementFolder(Path dir, StatementParser parser) {
     if (Files.exists(dir) && !Files.isDirectory(dir)) {
       throw new IllegalArgumentException("Statements folder is not a directory: " + dir);
     }
     this.dir = dir;
-    this.parsers = Map.copyOf(parsers);
+    this.parser = parser;
   }
 
   public synchronized Optional<Statement> forMonth(YearMonth month) {
@@ -79,7 +75,8 @@ public class StatementFolder {
     if (!Files.isDirectory(dir)) {
       return stored;
     }
-    try (DirectoryStream<Path> files = Files.newDirectoryStream(dir, this::isStatement)) {
+    try (DirectoryStream<Path> files =
+        Files.newDirectoryStream(dir, StatementFolder::isStatement)) {
       for (Path file : files) {
         stored.add(stored(file));
       }
@@ -137,7 +134,8 @@ public class StatementFolder {
     if (!Files.isDirectory(dir)) {
       return byMonth;
     }
-    try (DirectoryStream<Path> files = Files.newDirectoryStream(dir, this::isStatement)) {
+    try (DirectoryStream<Path> files =
+        Files.newDirectoryStream(dir, StatementFolder::isStatement)) {
       for (Path file : files) {
         Statement statement = parsed(file).statement();
         Indexed other = byMonth.put(statement.billingMonth(), new Indexed(file, statement));
@@ -165,7 +163,7 @@ public class StatementFolder {
 
   private Statement uploadedStatement(String fileName, Path staged) {
     try {
-      return parsers.get(PDF).parse(staged);
+      return parser.parse(staged);
     } catch (RuntimeException e) {
       throw new StatementRejectedException(
           fileName + " is not a readable statement: " + e.getMessage(), e);
@@ -193,14 +191,8 @@ public class StatementFolder {
     }
   }
 
-  private boolean isStatement(Path file) {
-    return parserFor(file) != null && !file.getFileName().toString().startsWith(LOCK_FILE_PREFIX);
-  }
-
-  private @Nullable StatementParser parserFor(Path file) {
-    String name = file.getFileName().toString().toLowerCase(Locale.ROOT);
-    int dot = name.lastIndexOf('.');
-    return dot < 0 ? null : parsers.get(name.substring(dot));
+  private static boolean isStatement(Path file) {
+    return file.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(PDF);
   }
 
   private Parsed parsed(Path file) throws IOException {
@@ -211,11 +203,11 @@ public class StatementFolder {
     }
     Statement statement;
     try {
-      statement = parserFor(file).parse(file);
+      statement = parser.parse(file);
     } catch (StatementFormatException e) {
       throw e;
     } catch (RuntimeException e) {
-      // POI, PDFBox and HebrewMonths fail without naming the file; the operator needs to know it.
+      // PDFBox fails without naming the file; the operator needs to know it.
       throw new StatementFormatException(file.getFileName() + ": " + e.getMessage(), e);
     }
     checkNameAgreesWithContent(file, statement.billingMonth());
@@ -227,12 +219,8 @@ public class StatementFolder {
   }
 
   private static void checkNameAgreesWithContent(Path file, YearMonth content) {
-    Matcher m = DOWNLOAD_NAMES.stream()
-        .map(p -> p.matcher(file.getFileName().toString()))
-        .filter(Matcher::matches)
-        .findFirst()
-        .orElse(null);
-    if (m == null) {
+    Matcher m = DOWNLOAD_NAME.matcher(file.getFileName().toString());
+    if (!m.matches()) {
       return;
     }
     YearMonth named;

@@ -7,7 +7,7 @@ import org.jspecify.annotations.Nullable;
 /**
  * One charged card transaction. Fields up to installment come from the statement; sector is the
  * issuer's own label for the merchant's line of business, null where the statement prints none
- * (the abroad section, the Excel export). Merchant, category and confidence come from the
+ * (the abroad section). Merchant, category and confidence come from the
  * categorizer and start as raw / UNCATEGORIZED / LOW.
  */
 public record Transaction(

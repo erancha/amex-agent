@@ -48,5 +48,4 @@ repo owns. Do not change the artifact schema or taxonomy: they are the contract'
   `APP_STATEMENTS_DIR` (`<root>/<sub>/`), list their files and delete one, nothing more. The API
   takes the person's token; page and config are open.
 - The test statement is `src/test/resources/statements/2026-10.pdf`, a real statement anonymized
-  by `scripts/anonymize-statement.py`. Every test runs on it; the Excel statement reader has no
-  tests.
+  by `scripts/anonymize-statement.py`. Every test runs on it.

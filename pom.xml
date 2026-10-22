@@ -24,7 +24,6 @@
     <!-- Spring Boot manages protobuf-java at this version; protobuf-java-util is unmanaged by both
          BOMs and must match it. -->
     <protobuf.version>4.35.1</protobuf.version>
-    <poi.version>5.5.1</poi.version>
     <pdfbox.version>3.0.5</pdfbox.version>
     <!-- Not managed by the Boot BOM (Spring Security's module is not on the classpath). -->
     <nimbus-jose-jwt.version>10.3</nimbus-jose-jwt.version>
@@ -99,11 +98,6 @@
       <groupId>com.google.protobuf</groupId>
       <artifactId>protobuf-java-util</artifactId>
       <version>${protobuf.version}</version>
-    </dependency>
-    <dependency>
-      <groupId>org.apache.poi</groupId>
-      <artifactId>poi-ooxml</artifactId>
-      <version>${poi.version}</version>
     </dependency>
     <dependency>
       <groupId>org.apache.pdfbox</groupId>

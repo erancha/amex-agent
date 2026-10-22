@@ -3,7 +3,7 @@ package com.erancha.amexagent.card.infra;
 import java.util.Map;
 import org.jspecify.annotations.Nullable;
 
-/** The card's own currency and the purchase-currency symbols both statement formats print. */
+/** The card's own currency and the purchase-currency symbols the statement prints. */
 final class StatementCurrency {
   static final String CODE = "ILS";
   static final String SYMBOL = "₪";

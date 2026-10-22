@@ -6,7 +6,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.YearMonth;
-import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -14,13 +13,12 @@ import org.junit.jupiter.api.io.TempDir;
 class StatementFoldersTest {
   private static final Path PDF = PdfStatementParserTest.FIXTURE;
   private static final YearMonth OCTOBER = YearMonth.of(2026, 10);
-  private final Map<String, StatementParser> parsers = Map.of(
-      ".pdf", new PdfStatementParser(PdfStatementLayout.AMEX_ISRAEL));
+  private final StatementParser parser = new PdfStatementParser(PdfStatementLayout.AMEX_ISRAEL);
 
   @Test
   void forMonth_twoPeopleWithTheSameMonth_seeOnlyTheirOwnFile(@TempDir Path root)
       throws Exception {
-    StatementFolders folders = new StatementFolders(root, parsers);
+    StatementFolders folders = new StatementFolders(root, parser);
     folders.add("1000", "a.pdf", Files.readAllBytes(PDF));
     assertThat(root.resolve("1000/2026-10.pdf")).exists();
     assertThat(folders.forMonth("1000", OCTOBER)).isPresent();
@@ -37,7 +35,7 @@ class StatementFoldersTest {
 
   @Test
   void forUser_pathLikeId_isRefused(@TempDir Path root) {
-    StatementFolders folders = new StatementFolders(root, parsers);
+    StatementFolders folders = new StatementFolders(root, parser);
     assertThatThrownBy(() -> folders.list("../1000")).isInstanceOf(IllegalArgumentException.class);
     assertThatThrownBy(() -> folders.forMonth("a/b", OCTOBER))
         .isInstanceOf(IllegalArgumentException.class);
@@ -45,7 +43,7 @@ class StatementFoldersTest {
 
   @Test
   void root_missing_failsNamingIt() {
-    assertThatThrownBy(() -> new StatementFolders(Path.of("/nonexistent/statements"), parsers))
+    assertThatThrownBy(() -> new StatementFolders(Path.of("/nonexistent/statements"), parser))
         .isInstanceOf(IllegalArgumentException.class)
         .hasMessageContaining("/nonexistent/statements");
   }

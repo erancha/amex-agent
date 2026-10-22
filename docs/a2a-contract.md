@@ -192,7 +192,7 @@ fields:
 | Field | Source |
 |---|---|
 | `currency` | Always `ILS`. |
-| `id` | The charge date and the row's position for a PDF statement (`20261002-09`), the voucher number for an Excel export; both stable across runs of the same file. |
+| `id` | The charge date and the row's position (`20261002-09`), stable across runs of the same file. |
 | `merchant` | The display name chosen by the categorizer; the raw string when it has none. |
 | `originalCurrency` | `USD`, `EUR` or `GBP` when the purchase currency differs from the card currency. |
 | `standingOrder`, `abroad`, `installment` | Read from the statement's own markings. |

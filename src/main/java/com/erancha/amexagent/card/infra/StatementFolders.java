@@ -21,22 +21,21 @@ import java.util.Optional;
  */
 public class StatementFolders implements StatementSource, StatementStore {
   private final Path root;
-  // Key: lower-case file extension with its dot. Value: the parser for that format.
-  private final Map<String, StatementParser> parsers;
+  private final StatementParser parser;
   // Key: user id. Value: that person's folder, with its parse cache.
   private final Map<String, StatementFolder> folders = new HashMap<>();
 
-  public StatementFolders(Path root, Map<String, StatementParser> parsers) {
+  public StatementFolders(Path root, StatementParser parser) {
     if (!Files.isDirectory(root)) {
       throw new IllegalArgumentException("Statements folder is not a directory: " + root);
     }
     this.root = root;
-    this.parsers = Map.copyOf(parsers);
+    this.parser = parser;
   }
 
   public synchronized StatementFolder forUser(String userId) {
     return folders.computeIfAbsent(userId,
-        id -> new StatementFolder(root.resolve(UserIds.folderName(id)), parsers));
+        id -> new StatementFolder(root.resolve(UserIds.folderName(id)), parser));
   }
 
   @Override
