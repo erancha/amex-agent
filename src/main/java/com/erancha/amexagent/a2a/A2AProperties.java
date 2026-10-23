@@ -4,6 +4,7 @@ import com.erancha.amexagent.auth.Caller;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -21,7 +22,8 @@ public record A2AProperties(
     @NotNull Agent agent,
     @NotNull Statements statements,
     @NotNull A2a a2a,
-    @NotNull Categorizer categorizer) {
+    @NotNull Categorizer categorizer,
+    @NotNull Tasks tasks) {
 
   public record Agent(@NotBlank String url, @NotBlank String version) {}
 
@@ -49,6 +51,13 @@ public record A2AProperties(
   }
 
   public record Auth(boolean required) {}
+
+  /**
+   * Where A2A tasks are kept. A blank redisUrl keeps them in this process's memory; a Redis URL
+   * keeps them in that Redis, where every replica given the same URL shares them. Redis deletes a
+   * task ttl after its last change.
+   */
+  public record Tasks(@DefaultValue("") String redisUrl, @NotNull Duration ttl) {}
 
   public record Categorizer(double highConfidence, double mediumConfidence, int batchSize) {}
 }

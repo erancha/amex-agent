@@ -16,6 +16,7 @@ import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
 import java.util.Base64;
 import java.util.Date;
+import java.util.Map;
 import org.springframework.test.context.DynamicPropertyRegistry;
 
 /**
@@ -71,13 +72,18 @@ public final class TestTokens {
   }
 
   /** The properties a booted agent needs to accept this class's tokens with auth on. */
+  public static Map<String, String> properties() {
+    return Map.of(
+        "app.auth.client-id", PAGE_CLIENT_ID,
+        "app.auth.issuer", ISSUER,
+        "app.auth.public-key-file", PUBLIC_KEY_FILE.toString(),
+        "app.a2a.allowed-callers[0].name", CALLER_NAME,
+        "app.a2a.allowed-callers[0].shared-secret", CALLER_SECRET,
+        "app.a2a.allowed-callers[0].client-id", CALLER_CLIENT_ID);
+  }
+
   public static void register(DynamicPropertyRegistry registry) {
-    registry.add("app.auth.client-id", () -> PAGE_CLIENT_ID);
-    registry.add("app.auth.issuer", () -> ISSUER);
-    registry.add("app.auth.public-key-file", () -> PUBLIC_KEY_FILE.toString());
-    registry.add("app.a2a.allowed-callers[0].name", () -> CALLER_NAME);
-    registry.add("app.a2a.allowed-callers[0].shared-secret", () -> CALLER_SECRET);
-    registry.add("app.a2a.allowed-callers[0].client-id", () -> CALLER_CLIENT_ID);
+    properties().forEach((key, value) -> registry.add(key, () -> value));
   }
 
   private static KeyPair generate() {

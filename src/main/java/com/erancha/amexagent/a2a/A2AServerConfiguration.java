@@ -19,25 +19,39 @@ import org.a2aproject.sdk.server.requesthandlers.RequestHandler;
 import org.a2aproject.sdk.server.tasks.InMemoryPushNotificationConfigStore;
 import org.a2aproject.sdk.server.tasks.InMemoryTaskStore;
 import org.a2aproject.sdk.server.tasks.PushNotificationSender;
+import org.a2aproject.sdk.server.tasks.TaskStateProvider;
+import org.a2aproject.sdk.server.tasks.TaskStore;
 import org.a2aproject.sdk.spec.AgentCard;
 import org.a2aproject.sdk.transport.jsonrpc.handler.JSONRPCHandler;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 /**
- * Wires the a2a-java server library as Spring beans: the in-memory task store, the queue manager
- * (which closes streams when a task waits for input), the main event bus and its processor
- * thread, the two a2a thread pools, the caller-secret filter, the user resolver and the JSON-RPC
- * handler (wrapping the SDK's default request handler) that the endpoints delegate to.
+ * Wires the a2a-java server library as Spring beans: the task store (in memory, or shared through
+ * Redis when APP_TASKS_REDIS_URL is set), the queue manager (which closes streams when a task
+ * waits for input), the main event bus and its processor thread, the two a2a thread pools, the
+ * caller-secret filter, the user resolver and the JSON-RPC handler (wrapping the SDK's default
+ * request handler) that the endpoints delegate to.
  */
 @Configuration
 public class A2AServerConfiguration {
+  private static final String REDIS_URL_SET = "'${app.tasks.redis-url:}' != ''";
 
+  /** Without Redis: tasks live in this process's memory and are lost when it stops. */
   @Bean
-  public InMemoryTaskStore taskStore() {
+  @ConditionalOnExpression("!(" + REDIS_URL_SET + ")")
+  public InMemoryTaskStore inMemoryTaskStore() {
     return new InMemoryTaskStore();
+  }
+
+  /** With Redis: whichever replica receives a continue finds the task another replica paused. */
+  @Bean
+  @ConditionalOnExpression(REDIS_URL_SET)
+  public RedisTaskStore redisTaskStore(A2AProperties properties) {
+    return new RedisTaskStore(properties.tasks().redisUrl(), properties.tasks().ttl());
   }
 
   @Bean
@@ -46,12 +60,12 @@ public class A2AServerConfiguration {
   }
 
   @Bean
-  public QueueManager queueManager(InMemoryTaskStore taskStore, MainEventBus bus) {
+  public QueueManager queueManager(TaskStateProvider taskStore, MainEventBus bus) {
     return new InMemoryQueueManager(taskStore, bus, new InterruptedStateStreamHook());
   }
 
   @Bean
-  public MainEventBusProcessor mainEventBusProcessor(MainEventBus bus, InMemoryTaskStore taskStore,
+  public MainEventBusProcessor mainEventBusProcessor(MainEventBus bus, TaskStore taskStore,
       QueueManager queueManager) {
     // Push notifications are disabled on the card and in the handler, so the sender has nothing
     // to deliver; the processor still calls it once per streaming event, hence the no-op.
@@ -96,7 +110,7 @@ public class A2AServerConfiguration {
    */
   @Bean
   public JSONRPCHandler jsonRpcHandler(AgentCard card, AgentExecutor agentExecutor,
-      InMemoryTaskStore taskStore, QueueManager queueManager, MainEventBusProcessor processor,
+      TaskStore taskStore, QueueManager queueManager, MainEventBusProcessor processor,
       @Qualifier("a2aInternalExecutor") Executor internal,
       @Qualifier("a2aEventConsumerExecutor") Executor eventConsumer) {
     RequestHandler requestHandler = DefaultRequestHandler.builder()

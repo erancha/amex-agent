@@ -4,7 +4,8 @@ Four layers, each proving something the others cannot: unit tests pin the parsin
 and transport rules; the integration test drives the real agent with the a2a-java client;
 `validate.sh` drives the packaged jar with the Python a2a-sdk client; the official A2A TCK checks
 the transport against the protocol. Beside them, the Bash checks under `scripts/tests/` pin what
-the operator scripts print and refuse. None needs Docker or an API key.
+the operator scripts print and refuse. None needs an API key. The two Redis integration tests
+need Docker, because Testcontainers starts their Redis in a container.
 
 **Contents:** [Running](#running) · [Unit](#unit) · [Integration](#integration) ·
 [Client-side validation](#client-side-validation) · [Conformance](#conformance) · [CI](#ci)
@@ -14,7 +15,7 @@ the operator scripts print and refuse. None needs Docker or an API key.
 | Command | Runs | Needs |
 |---|---|---|
 | `./scripts/test.sh unit` | Unit tests (`*Test`, `mvn test`) | Java 21, Maven |
-| `./scripts/test.sh` (or `it`, `all`) | Unit and integration tests (`*IT`, `mvn verify`) | Java 21, Maven |
+| `./scripts/test.sh` (or `it`, `all`) | Unit and integration tests (`*IT`, `mvn verify`) | Java 21, Maven, Docker |
 | `./scripts/validate.sh` | Packages the jar, starts it on port 8021 under the `e2e` profile with the test statement in one person's folder and a throwaway signing key standing in for Google, runs the client checks as a registered caller, then boots the jar once per real provider with a placeholder key to prove the provider's runtime libraries ship in it | Java 21, Maven, Python 3.11+, openssl, network for the first venv install |
 | `bash scripts/tests/test_load_env.sh` | Scripts: `.env` loading in `common.sh` (caller's environment wins, quotes stripped, malformed line rejected) | Bash |
 | `bash scripts/tests/test_register_caller.sh` | Scripts: `register-caller.sh` mints and prints a secret unless given one, with the agent's name and URLs the caller's operator records, replaces an entry by name keeping the others, writes the file owner-readable, replaces an empty directory at the path (what a Docker start without the file leaves) and refuses one with content | Bash |
@@ -77,6 +78,21 @@ a registered caller forwarding that person's token:
   `sign-in-required` reason and no artifact;
 - a wrong secret fails with HTTP 401;
 - a malformed month (`09/2026`) fails with an error naming the month.
+
+`ReplicasIT` starts two complete agents (ports 18030 and 18031) that share one Redis container
+and one statements folder, standing in for two replicas behind the edge. A request for a month
+sent to the first agent pauses because the statement is missing. Once the statement is loaded, a
+`continue` sent to the second agent completes the task with all 24 rows, and the first agent then
+reports the task as completed. If each agent kept its tasks in its own memory, that `continue`
+would fail with `Task not found`.
+
+`RedisTaskStoreIT` runs two `RedisTaskStore`s against one Redis container, standing in for two
+replicas. A paused task saved by one store is read in full by the other, including the data
+recorded with the pause, and when the second store saves it as completed, the first sees that.
+An unknown task is absent and counts as neither active nor finalized. A listing includes both
+stores' tasks and filters by context the way the SDK does. A deleted or expired task is gone for
+both stores. A Redis that cannot be reached fails the store's construction with a message naming
+`APP_TASKS_REDIS_URL`.
 
 ## Client-side validation
 

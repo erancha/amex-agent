@@ -72,6 +72,10 @@ app:
   llm:
     model: ${APP_LLM_MODEL:}
     api-key: ${APP_LLM_API_KEY:}
+  tasks:
+    redis-url: ${APP_TASKS_REDIS_URL:}
+    # Long enough for a person to fetch a missing statement days after the task asked for it.
+    ttl: ${APP_TASKS_TTL:30d}
   categorizer:
     high-confidence: ${APP_CATEGORIZER_HIGH_CONFIDENCE:0.85}
     medium-confidence: ${APP_CATEGORIZER_MEDIUM_CONFIDENCE:0.6}

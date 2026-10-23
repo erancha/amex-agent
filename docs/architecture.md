@@ -1,13 +1,15 @@
 # Architecture
 
-amex-agent is one Spring Boot process with two halves: a Spring MVC transport around the official
+amex-agent is a Spring Boot process with two halves: a Spring MVC transport around the official
 a2a-java server library (`a2a/`), and a fixed card pipeline that turns a billing month into
-categorized transactions (`card/`). What goes on the wire is in [a2a-contract.md](a2a-contract.md);
-this file explains how the code delivers it.
+categorized transactions (`card/`). The Docker stack runs it as replicas behind an nginx edge,
+sharing their tasks through Redis (see [Replicas](#replicas)). What goes on the wire is in
+[a2a-contract.md](a2a-contract.md); this file explains how the code delivers it.
 
 **Contents:** [Components](#components) · [Request flow](#request-flow) ·
 [Why a hand-written Spring transport](#why-a-hand-written-spring-transport) ·
-[Threading](#threading) · [Configuration](#configuration) · [Who is calling](#who-is-calling) ·
+[Threading](#threading) · [Replicas](#replicas) · [Configuration](#configuration) ·
+[Who is calling](#who-is-calling) ·
 [Providers](#providers) · [Statement folders and layout](#statement-folders-and-layout) ·
 [Statements page](#statements-page) · [Categorizer](#categorizer) ·
 [Library behavior](#library-behavior)
@@ -21,7 +23,8 @@ Packages under `src/main/java/com/erancha/amexagent/`:
 | `a2a` | `A2AEndpoint` | `POST /` for every JSON-RPC method: parses the body with the SDK's `JSONRPCUtils`, dispatches over the SDK's sealed request types with an exhaustive `switch`, writes one JSON document or hands a stream to `SseStreamWriter`. A non-JSON content type gets `ContentTypeNotSupportedError` (-32005). |
 | `a2a` | `SseStreamWriter` | Subscribes to the handler's event publisher on the request thread, writes and flushes one SSE frame per event, and releases the thread on any failure. |
 | `a2a` | `AgentCardEndpoint`, `AgentCardConfiguration` | Serve the public card at `/.well-known/agent-card.json`, built from `app.agent.*` and `app.a2a.auth.*`; with auth on it requires the person's Google ID token (OpenID Connect scheme) and the caller's secret (API key scheme) together. |
-| `a2a` | `A2AServerConfiguration` | Wires the SDK as Spring beans: in-memory task store, queue manager, main event bus and its processor, the two a2a thread pools, the caller-secret filter, the user resolver and the `JSONRPCHandler`. |
+| `a2a` | `A2AServerConfiguration` | Wires the SDK as Spring beans: the task store (the SDK's in-memory one, or `RedisTaskStore` when `APP_TASKS_REDIS_URL` is set), queue manager, main event bus and its processor, the two a2a thread pools, the caller-secret filter, the user resolver and the `JSONRPCHandler`. |
+| `a2a` | `RedisTaskStore` | Implements the SDK's `TaskStore` on Redis. Each task is one key holding the task's wire JSON, which expires `APP_TASKS_TTL` after the last save. A set of task ids supports listing; the SDK's own in-memory store does the listing's filtering and paging. |
 | `a2a` | `InterruptedStateStreamHook` | A `TaskStreamLifecycleHook` that closes a task's open streams once the task enters an interrupted state such as input-required. |
 | `a2a` | `CallerSecretFilter` | Servlet filter admitting a request whose `X-Caller-Secret` names a registered caller, attached to the request for the executor; registered only when auth is required. |
 | `a2a` | `CallContexts`, `CallContextUsers`, `JsonRpcResponses` | Build the SDK's per-request context from the servlet request (headers, admitted caller, tenant); resolve the person of an A2A request from that context; serialize non-streaming responses to wire JSON. |
@@ -125,6 +128,50 @@ A task that waits for input must not pin a request thread while a person downloa
 `InterruptedStateStreamHook` closes the task's streams after the input-required event; queued
 events are still delivered first.
 
+## Replicas
+
+The Docker stack runs two replicas of the agent (`deploy: replicas` in compose) behind an nginx
+edge (`nginx/default.conf`). The edge is the only service that publishes port 8020, and it
+spreads requests over the replicas. It looks up the replicas' addresses again every 5 seconds, so
+a replica added by scaling or recreated by a redeploy starts receiving requests without an edge
+restart. Its access log names the replica that served each request.
+
+Almost nothing ties a request to one replica. A `SendStreamingMessage` call is received, run and
+streamed back within one HTTP response, so the replica that receives the call also runs the task,
+and no other process is involved while the task works. The person is identified by a token
+checked on every request, every replica mounts the same statements folder, and the statements
+page keeps its token in the browser, so any replica can serve any of these requests.
+
+The exception is a paused task. The caller's `continue` is a new request, and the edge may send it
+to a replica other than the one that paused the task. The tasks are therefore kept in Redis
+(`APP_TASKS_REDIS_URL`): the replica that receives the `continue` loads the task, including the
+month and person recorded when it paused, and runs it from there. Redis also writes the tasks to
+an append-only file every second, so paused tasks survive a Redis restart; the replicas share
+tasks with or without that file. Redis deletes a task `APP_TASKS_TTL` (30 days) after its last
+change, so the store does not grow without bound. When `APP_TASKS_REDIS_URL` is unset, tasks stay
+in the process's memory (the SDK's in-memory store); `start.sh --host`, the unit tests and a
+caller's end-to-end test run this way.
+
+Three parts of the design still assume a single process, so the replicas serve callers correctly
+only under these conditions:
+
+1. **No replica stops while a task is working.** A working task is a stream that one replica
+   holds open. Stopping that replica ends the stream, the caller's fetch fails, and the task stays
+   `working` in Redis until it expires. Redeploy while tasks are paused or finished: any replica
+   can continue a paused task.
+2. **No two continues for one task at the same instant.** No replica owns a task, and the last
+   save wins, so two continues arriving at two replicas at once would both run the task and mix
+   their updates. A caller sends one continue for each answer from its person, so only a caller
+   that resends before its first continue returns can cause this.
+3. **A reconnect reaches the replica running the task.** `SubscribeToTask` attaches to the task's
+   event queue, which exists only in the process running the task. On another replica, the call
+   finds the stored task but receives none of its live events. No caller of this agent uses
+   `SubscribeToTask`.
+
+Each replica keeps its own cache of merchant categories (see [Categorizer](#categorizer)), so
+each replica asks the model once about a merchant it has not seen. That costs extra model calls
+but does not affect correctness.
+
 ## Configuration
 
 Every runtime setting in `application.yml` is `${ENV:default}`; secrets, the provider and the
@@ -146,6 +193,8 @@ PDFBox's font warning logger is held at `ERROR`.
 | `app.auth.issuer` | `APP_AUTH_ISSUER` | `https://accounts.google.com` | Who issues the tokens. |
 | `app.auth.jwks-url` | `APP_AUTH_JWKS_URL` | Google's JWKS URL | Where the issuer's public keys are fetched from and cached. |
 | `app.auth.public-key-file` | `APP_AUTH_PUBLIC_KEY_FILE` | none | Test only: a PEM public key that replaces the JWKS fetch. |
+| `app.tasks.redis-url` | `APP_TASKS_REDIS_URL` | none | The Redis that holds the A2A tasks; replicas given the same URL share their tasks. When unset, tasks stay in the process's memory. The Docker stack sets it. |
+| `app.tasks.ttl` | `APP_TASKS_TTL` | `30d` | How long Redis keeps a task after its last change. |
 | `app.llm.model` | `APP_LLM_MODEL` | none, required | `anthropic:<model>` or `openai:<model>`; the provider half selects the ChatModel. |
 | `app.categorizer.high-confidence` | `APP_CATEGORIZER_HIGH_CONFIDENCE` | 0.85 | From this model score up, a row's confidence is `high`. |
 | `app.categorizer.medium-confidence` | `APP_CATEGORIZER_MEDIUM_CONFIDENCE` | 0.6 | From this score up it is `medium`; below, `low`. |
@@ -355,4 +404,5 @@ than it was asked fails the task.
 - A client that disconnects from a `SubscribeToTask` stream does not stop it early: the SDK
   registers no cancel callback for that method, so its event consumer runs until the task reaches
   a terminal or interrupted state. `SendStreamingMessage` streams stop at the next write.
-- Tasks and the categorizer cache live in memory and are lost on restart.
+- Without Redis, tasks are kept in the process's memory and are lost when it restarts. The
+  categorizer cache is always kept in the process's memory.

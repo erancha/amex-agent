@@ -1,4 +1,20 @@
 services:
+  # Holds the A2A tasks for every replica (APP_TASKS_REDIS_URL), so whichever replica receives a
+  # continue finds the task another replica paused. Redis also writes the tasks to an append-only
+  # file every second, so paused tasks survive a Redis restart; the replicas share tasks with or
+  # without that file.
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes --appendfsync everysec
+    deploy: { resources: { limits: { memory: 64M } } }
+    volumes:
+      - amex_redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 15
+
   # The card agent, reading statements from the folder named in .env (APP_STATEMENTS_DIR), one
   # sub-folder per person. The statements page writes uploads into that folder, so the mount is
   # writable and the process runs as the host user who owns it (scripts/common.sh exports HOST_UID
@@ -8,25 +24,59 @@ services:
     build: .
     image: amex-agent:local
     user: "${HOST_UID:?run through scripts/start.sh}:${HOST_GID:?run through scripts/start.sh}"
+    # The edge spreads requests over the replicas, and whichever replica receives a continue picks
+    # up the paused task. Redeploy only while no task is working: stopping a replica mid-task ends
+    # that task's stream, and the caller's fetch fails.
+    # To try a different number of replicas, scale the running stack: in a shell, source
+    # scripts/common.sh and run load_env (compose needs the variables it exports), then run
+    # compose up -d --scale amex-agent=N --wait. The next start.sh goes back to the count set here.
     deploy:
+      replicas: 2
       resources:
         limits:
           memory: 768M
     env_file:
       - path: ./.env
         required: true
-    # The container side is fixed; SERVER_PORT from .env only picks the host port.
+    # The container always listens on 8020; SERVER_PORT from .env only chooses the host port the
+    # edge publishes.
     environment:
       SERVER_PORT: 8020
       APP_STATEMENTS_DIR: /statements
       APP_A2A_CALLERS_FILE: /allowed-callers.yaml
+      # The replicas share their tasks through Redis. To keep tasks in the process's memory
+      # instead, blank this value and also set replicas to 1 above: with several replicas, a
+      # continue reaching a replica other than the one that paused the task would find no task.
+      # start.sh --host already runs this way, as one process with its tasks in memory.
+      APP_TASKS_REDIS_URL: redis://redis:6379/0
     volumes:
       - ${APP_STATEMENTS_DIR:?set APP_STATEMENTS_DIR in .env}:/statements
       - ${APP_A2A_CALLERS_FILE:-./allowed-callers.yaml}:/allowed-callers.yaml:ro
-    ports:
-      - "${SERVER_PORT:-8020}:8020"
     healthcheck:
       test: ["CMD-SHELL", "curl -fs http://localhost:8020/actuator/health || exit 1"]
       interval: 5s
       timeout: 3s
       retries: 20
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  # The only service that publishes the agent's port; nginx/default.conf proxies to the replicas.
+  edge:
+    image: nginx:1.28-alpine
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    deploy: { resources: { limits: { memory: 64M } } }
+    ports:
+      - "${SERVER_PORT:-8020}:8020"
+    healthcheck:
+      test: ["CMD", "wget", "-qO", "/dev/null", "http://localhost:8020/actuator/health"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    depends_on:
+      amex-agent:
+        condition: service_healthy
+
+volumes:
+  amex_redis:

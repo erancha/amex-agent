@@ -74,7 +74,7 @@ host mode and `validate.sh`, and **Python 3.11+** for `validate.sh`.
 5. **Start:**
 
    ```bash
-   ./scripts/start.sh             # builds the image, starts amex-agent on http://localhost:8020
+   ./scripts/start.sh             # builds the image, starts two replicas on http://localhost:8020
    ./scripts/validate.sh          # runs its own copy on :8021 and proves it as an A2A client would
    ```
 
@@ -101,7 +101,7 @@ All live in `scripts/`; run with `--help` for full usage.
 | `init-env.sh` | Create `.env`; `--force` overwrites. |
 | `register-caller.sh` | Register an A2A caller (name, secret, Google client id) in `allowed-callers.yaml`, or replace its entry. |
 | `start.sh` | Run the agent in Docker, or `--host` as a local JVM. |
-| `docker-helper.sh` | `--stop`, `--logs [-e]` or `--ps` for the Docker run. |
+| `docker-helper.sh` | `--stop`, `--logs [-e] [service...]` or `--ps` for the Docker run. |
 | `test.sh` | Run unit tests (`unit`) or unit and integration tests (`it`, `all`, the default). |
 | `validate.sh` | Start amex-agent against its test statement with a throwaway signing key and prove it end to end as a registered A2A caller; `--tck` also runs the official A2A conformance suite. |
 | `anonymize-statement.py` | Copy a statement PDF with the holder's private details replaced, to use as a test fixture. |
@@ -109,7 +109,7 @@ All live in `scripts/`; run with `--help` for full usage.
 ## Testing
 
 ```bash
-./scripts/test.sh              # unit + integration, no Docker, no API key
+./scripts/test.sh              # unit and integration tests; the Redis ones need Docker
 ```
 What each layer covers, and the latest conformance result, is in [docs/testing.md](docs/testing.md).
 
@@ -117,9 +117,13 @@ What each layer covers, and the latest conformance result, is in [docs/testing.m
 
 ```mermaid
 flowchart LR
-  C([A2A client]) -->|JSON-RPC + SSE<br/>person's ID token + caller secret| E[Spring MVC edge]
-  E --> H[a2a-java request handler]
-  H --> X[Executor]
+  C([A2A client]) -->|JSON-RPC + SSE<br/>person's ID token + caller secret| N[nginx edge]
+  N --> E
+  subgraph R[amex-agent replicas]
+    E[Spring MVC transport] --> H[a2a-java request handler]
+    H --> X[Executor]
+  end
+  H <-->|tasks| T[(Redis)]
   X -->|verify token| G[Google public keys]
   X --> F[Person's statement folder]
   F --> P[PDF parser]
@@ -127,13 +131,16 @@ flowchart LR
   M -->|batches of unseen merchants| L[Spring AI model]
 ```
 
-The edge is two Spring controllers around the official a2a-java server library, behind a filter
-that admits registered callers. The card work is a fixed pipeline: verify who the month is for,
+The edge spreads requests over the replicas. Each replica is two Spring controllers around the
+official a2a-java server library, behind a filter that admits registered callers. The replicas
+read one shared statements folder and keep their A2A tasks in Redis, so a task paused by one can
+be continued by any. The card work is a fixed pipeline: verify who the month is for,
 find their statement, parse it, categorize, stream. Details and decisions:
 [docs/architecture.md](docs/architecture.md); what it puts on the wire:
 [docs/a2a-contract.md](docs/a2a-contract.md).
 
-**Stack:** Java 21, Spring Boot, Spring AI, a2a-java, nimbus-jose-jwt, Apache PDFBox, Docker.
+**Stack:** Java 21, Spring Boot, Spring AI, a2a-java, nimbus-jose-jwt, Apache PDFBox, Redis,
+nginx, Docker.
 
 ## License
 
