@@ -30,11 +30,12 @@ public class SpringAiMerchantClassifier implements MerchantClassifier {
       business does; lean on it when the merchant string alone says little, as with a person's
       name billed under a medical sector.
       For each input return: rawMerchant (the merchant string echoed exactly, without the
-      bracketed sector), merchant (a readable display name, Latin letters when the brand is
-      international, otherwise clean Hebrew; a self-explaining brand stays short, "Netflix",
-      while a brand that alone does not say what the business does keeps the words that do,
-      "Harel health insurance" or "הראל ביטוח בריאות"), category (exactly one of the categories
-      below), confidence (0.0 to 1.0, your certainty in the category).
+      bracketed sector), merchant (a readable display name in the language the statement prints
+      it in: a Hebrew string stays Hebrew and an English one English, never translated or
+      transliterated, even for a well-known Israeli brand; a self-explaining brand stays short,
+      "Netflix" or "סלקום", while a brand that alone does not say what the business does keeps
+      the words that do, "הראל ביטוח בריאות"), category (exactly one of the categories below),
+      confidence (0.0 to 1.0, your certainty in the category).
 
       Categories:
       %s

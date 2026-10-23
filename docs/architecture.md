@@ -230,9 +230,11 @@ to lean on it where the merchant string alone says little, such as a doctor's na
 installments. Each category carries a guide in `Category` (the kinds of merchants it holds), and
 the prompt says a category is what the money buys, not how it is paid: a gym paid by standing
 order is health, a streaming service entertainment. It also warns against judging a shop by a
-generic word in its name and asks for `uncategorized` over a guess. A display name stays short
-when the brand explains itself (`Netflix`) and keeps the words that say what the business does
-when it does not (`Harel health insurance`), so a row reads as more than a bare brand.
+generic word in its name and asks for `uncategorized` over a guess. A display name keeps the
+language the statement prints the merchant in, so a Hebrew merchant is never shown translated to
+English. It stays short when the brand explains itself (`Netflix`, `סלקום`) and keeps the words that
+say what the business does when it does not (`הראל ביטוח בריאות`), so a row reads as more than a
+bare brand.
 Claude may reason before it answers. Spring AI then reports the reasoning as a generation of its
 own ahead of the answer, so the classifier reads the last generation, never the first, and
 converts its text itself. The reasoning tokens also count against the call's output limit, so
