@@ -1,14 +1,15 @@
 # Architecture
 
 How amex-agent is built, and why. Each section below ends in a page that holds its details. What
-goes on the wire is in [a2a-contract.md](a2a-contract.md); how each part is
-tested is in [testing.md](testing.md).
+goes on the wire is in [a2a-contract.md](a2a-contract.md); how each part is tested is in
+[testing.md](testing.md).
 
 ## Request flow
 
 The architecture diagram in [the README](../README.md#architecture) walks a request through its
-boxes. [architecture/request-flow.md](architecture/request-flow.md) is what runs inside the
-replica: the classes a call passes through, the credentials, the threads and the library.
+boxes. [architecture/request-flow.md](architecture/request-flow.md) is what runs inside a
+replica: how the two credentials are checked, why the transport is hand-written, and the
+threading a long-lived stream needs.
 
 ## Statements
 
@@ -20,9 +21,9 @@ checks every section against its printed total.
 
 ## Categorizer
 
-Merchants are normalized to a key, classified in batches by a language model that is given the
-statement's sector label and the taxonomy's guides, and scored into `high`, `medium` or `low`
-confidence; the e2e profile swaps in a keyword table.
+A language model categorizes each merchant once, in batches, guided by the sector label the
+statement prints, and its score becomes `high`, `medium` or `low` confidence. Amounts and dates
+never pass through the model.
 [architecture/categorizer.md](architecture/categorizer.md)
 
 ## Scaling
@@ -36,12 +37,12 @@ callers without degrading any caller's experience.
 
 ## Configuration
 
-Every runtime setting is an environment variable with a default in `application.yml`; secrets, the
-provider and the statements folder have none, and a wrong required setting stops startup naming
-it. [architecture/configuration.md](architecture/configuration.md)
+Every runtime setting is an environment variable; secrets, the model and the statements folder have
+no default, and a wrong required setting stops startup naming it.
+[architecture/configuration.md](architecture/configuration.md)
 
 ## Codebase structure
 
-Two halves under `com.erancha.amexagent`: the `a2a` and `auth` packages around the SDK, and the
-`card` pipeline with its ports, application and infrastructure.
+Two halves: the packages that fit the a2a-java library into Spring and check who is calling, and
+the card pipeline that turns a statement into categorized rows.
 [architecture/codebase-structure.md](architecture/codebase-structure.md)

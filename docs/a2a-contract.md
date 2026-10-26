@@ -199,9 +199,9 @@ fields:
 | `standingOrder`, `abroad`, `installment` | Read from the statement's own markings. |
 | `category`, `confidence` | The categorizer's answer; every other field comes from the statement without a model call. |
 
-The model's score stays inside the agent: from `APP_CATEGORIZER_HIGH_CONFIDENCE` (default 0.85)
-up it is reported as `high`, from `APP_CATEGORIZER_MEDIUM_CONFIDENCE` (default 0.6) up as
-`medium`, below that as `low`. A `low` row keeps the agent's best guess as its category, so the
+The model's score stays inside the agent: from `APP_CATEGORIZER_HIGH_CONFIDENCE` up it is
+reported as `high`, from `APP_CATEGORIZER_MEDIUM_CONFIDENCE` up as `medium`, below that as
+`low`. A `low` row keeps the agent's best guess as its category, so the
 caller can confirm or correct it. A model answer outside the taxonomy or the score range is
 `"category": "uncategorized"` with `low` confidence.
 
