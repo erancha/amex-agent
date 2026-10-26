@@ -150,7 +150,8 @@ Result across runs, a2a-tck commit `263b9cf`, `--transport jsonrpc --level must`
 
 One test moves between passed and skipped from run to run. It sends a blocking `SendMessage`,
 which the SDK's own race sometimes answers with `Timeout waiting for task <id> consumption` (see
-[Library behavior](architecture.md#library-behavior)); the TCK records that error as a skip.
+[Library behavior](architecture/request-flow.md#library-behavior)); the TCK records that error as a
+skip.
 
 The script tracks the TCK's default branch, so a later run may test a newer commit than the one
 recorded here.

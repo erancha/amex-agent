@@ -1,11 +1,12 @@
 # A2A contract: how amex-agent implements it
 
-The `monthly-transactions` skill has one contract for every card agent, owned by its caller:
-[the contract](https://github.com/erancha/home-finance-agent/blob/main/docs/a2a-contract.md)
-defines the transport, the agent card, the request, the stream, the row schema, the taxonomy, the
-pauses and the two credentials. This page describes only what is amex-agent's own: the endpoint
-and its headers, the card's values, the exact texts and artifact naming it puts on the wire, how
-it fills each row, how it checks the credentials, and the errors it answers with.
+The `monthly-transactions` skill has one contract for every card agent, owned by its caller, and
+the caller publishes it. The demo's caller, the home finance agent, keeps it at
+[docs/a2a-contract.md in its repo](https://github.com/erancha/home-finance-agent/blob/main/docs/a2a-contract.md);
+it defines the transport, the agent card, the request, the stream, the row schema, the taxonomy,
+the pauses and the two credentials. This page describes only what is amex-agent's own: the
+endpoint and its headers, the card's values, the exact texts and artifact naming it puts on the
+wire, how it fills each row, how it checks the credentials, and the errors it answers with.
 
 **Contents:** [Transport](#transport) · [Agent Card](#agent-card) · [Request](#request) ·
 [Task lifecycle](#task-lifecycle) · [Pauses and resume](#pauses-and-resume) ·
@@ -78,7 +79,7 @@ X-Caller-Secret: <the caller's registered secret>
 The blocking `SendMessage` method accepts the same message and returns the task in one document,
 but it intermittently answers `InternalError` (-32603) `Timeout waiting for task <id>
 consumption` for a task that did complete: the SDK's blocking wait races its own task storage
-(see [Library behavior](architecture.md#library-behavior)). Clients use
+(see [Library behavior](architecture/request-flow.md#library-behavior)). Clients use
 `SendStreamingMessage`; a client that already sent `SendMessage` and got that error can read the
 finished task with `GetTask`.
 

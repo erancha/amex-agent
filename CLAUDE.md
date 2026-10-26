@@ -12,7 +12,7 @@ repo owns. Do not change the artifact schema or taxonomy: they are the contract'
   `APP_LLM_API_KEY`
 - `register-caller.sh --name N --client-id C [--secret S] [--file F]` — register or replace an A2A
   caller in `allowed-callers.yaml` (gitignored); mints and prints the secret unless one is given
-- `start.sh [--host]` — Docker (default: Redis, two replicas, nginx edge on :8020) or
+- `start.sh [--host]` — Docker (default: Redis, the compose file's replicas, nginx edge on :8020) or
   `mvn spring-boot:run` (one process, tasks in memory); stops before launching when access is
   required and no callers file exists
 - `docker-helper.sh --stop|--logs [-e] [service...]|--ps`
@@ -47,8 +47,8 @@ repo owns. Do not change the artifact schema or taxonomy: they are the contract'
 - `A2ATransportIT` runs on fixed port 18020 because the card advertises the URL the client calls.
 - The replicas share only their A2A tasks, through `RedisTaskStore` when `APP_TASKS_REDIS_URL` is
   set. Any replica can continue a paused task, but a working task stays with the replica that
-  streams it, and each replica keeps its own categorizer cache. docs/architecture.md#replicas
-  lists the conditions the replicas rely on.
+  streams it, and each replica keeps its own categorizer cache. docs/architecture/scaling.md
+  states what the replicas must guarantee.
 - `statements/` serves `/statements.html`, `/api/auth/config` and `/api/statements`: sign in with
   the agent's own Google client, load a statement PDF into the person's folder under
   `APP_STATEMENTS_DIR` (`<root>/<sub>/`), list their files and delete one, nothing more. The API

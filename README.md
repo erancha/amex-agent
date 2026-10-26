@@ -2,48 +2,98 @@
 
 [![CI](https://github.com/erancha/amex-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/erancha/amex-agent/actions/workflows/ci.yml)
 
-amex-agent is a service for one American Express Israel card. Another program asks it, over the
-open [A2A (Agent2Agent) protocol](https://a2a-protocol.org), for one month's card charges and gets
-them back categorized. The caller is typically an agent that reviews a household's monthly
-spending across cards.
+amex-agent is a multi-user, scalable service for American Express Israel cards. Another program asks
+it, over the open [A2A (Agent2Agent) protocol](https://a2a-protocol.org), for one person's charges
+in one month and gets them back categorized. The caller is typically an agent that reviews a
+household's monthly spending across cards.
 
 A2A calls every party in the conversation an agent, hence the name. Inside, amex-agent is a fixed
 pipeline: read the month's statement, categorize its merchants, stream the rows back.
 
-**Contents:** [Boundaries](#boundaries) · [How a request runs](#how-a-request-runs) ·
+**Contents:** [Architecture](#architecture) · [Boundaries](#boundaries) ·
 [Getting started](#getting-started) · [Scripts](#scripts) · [Testing](#testing) ·
-[Architecture](#architecture) · [License](#license)
+[License](#license)
+
+## Architecture
+
+```mermaid
+flowchart LR
+  subgraph CALLER[Caller  - another operator]
+    C([A2A client, e.g. the home finance agent])
+  end
+  C -->|JSON-RPC + SSE<br/>person's ID token + caller secret| N
+  subgraph AMX[amex-agent  - this repo]
+    direction LR
+    N["<b>nginx edge</b>"] --> W
+    subgraph R[replicas]
+      W["<b>Caller filter</b>"] --> E["<b>Spring MVC transport</b>"] --> H["<b>a2a-java request handler</b>"]
+      H --> X["<b>Executor</b>"]
+      X --> P["<b>PDF parser</b>"]
+      X --> M["<b>Merchant categorizer</b>"]
+    end
+    H <-->|tasks| T[("<b>Redis</b>")]
+    P --> F["<b>Statements root</b><br/>shared volume, a folder per person"]
+  end
+  M -->|batches of unseen merchants<br/>via Spring AI| L["<b>LLM (Language Model)</b><br/>categorizes merchants"]
+  X -->|verify token| G["<b>Google public keys</b>"]
+  classDef caller fill:#dbeafe,stroke:#1d4ed8,color:#111827
+  classDef amx fill:#dcfce7,stroke:#15803d,color:#111827
+  classDef goog fill:#fef3c7,stroke:#b45309,color:#111827
+  classDef llm fill:#ede9fe,stroke:#6d28d9,color:#111827
+  class C caller
+  class N,W,E,H,X,T,F,P,M amx
+  class G goog
+  class L llm
+  style CALLER fill:#eff6ff,stroke:#1d4ed8
+  style AMX fill:#f0fdf4,stroke:#15803d
+  style R fill:#dcfce7,stroke:#15803d
+```
+
+A request walks the diagram left to right:
+
+- **A2A client**, the caller, reads amex-agent's Agent Card, checks it offers the skill, and asks
+  for a billing month, for example `{"month": "2026-10"}`, sending its registered secret and the
+  signed-in person's Google ID token, so amex-agent knows which caller asks and for whom.
+- **nginx edge** spreads requests over the replicas; everything listed below runs inside the
+  replica that got the request.
+- **Caller filter** admits the call only when it carries a secret the agent issued to a registered
+  caller.
+- **Spring MVC transport**, hand-written and thin, reads the JSON-RPC call and streams the response
+  back as SSE.
+- **a2a-java request handler**, the official server library, turns the call into a task, kept in
+  **Redis** so a task paused by one replica can be continued by any, and runs the executor for it.
+- **Executor** is this repo's card work: verify the person's token against **Google public keys**,
+  have the **PDF parser** read that month's statement from the person's own folder in the
+  **statements root**, and have the **Merchant categorizer** label the merchants, asking the
+  **LLM** (Anthropic's or OpenAI's) only about merchants this replica has not seen. The charges
+  stream back along the same path in batches, each with a category such as `groceries` or
+  `insurance`. When the statement is not loaded yet, the executor leaves the task open and asks for
+  it; once the person has loaded the file, the caller says "continue" and the same task finishes.
+  A token that has expired pauses the task the same way until the person signs in again.
+
+The LLM only chooses categories; every amount and date is read from the PDF. A month comes back
+whole or not at all: the parser checks its rows against the totals the statement prints and fails
+the request on any difference.
+
+Details and decisions: [docs/architecture.md](docs/architecture.md); what it puts on the wire:
+[docs/a2a-contract.md](docs/a2a-contract.md).
+
+**Stack:** Java 21, Spring Boot, Spring AI, a2a-java, nimbus-jose-jwt, Apache PDFBox, Redis,
+nginx, Docker.
 
 ## Boundaries
 
-- **The contract is shared, not per agent.** Every card agent offers the same A2A skill,
+- **The contract is shared, not per agent.** Every card agent should offer the same A2A skill,
   `monthly-transactions`: a billing month in, rows out in one format (ISO dates, amounts in
   shekels, one category from a closed list), or a request for the missing statement. The caller
   owns that contract; [docs/a2a-contract.md](docs/a2a-contract.md) describes how amex-agent
   implements it.
-- **Each card agent normalizes and categorizes its own card.** Everything Amex-specific stops
-  here: the PDF layout, Hebrew labels, installments, purchases abroad. Rows leave amex-agent in
-  the shared format, each in a category with the agent's confidence, `high`, `medium` or `low`,
-  or `uncategorized` when it cannot tell.
-- **A caller needs nothing card-specific.** It can talk to any card agent that offers the skill,
-  and owns what spans cards: the person's own categories, which outrank any card agent's, the
-  budget, the totals and the summary.
-
-## How a request runs
-
-1. A registered caller reads amex-agent's Agent Card and checks it offers the skill.
-2. It asks for a billing month, for example `{"month": "2026-10"}`, sending its registered secret
-   and the signed-in person's Google ID token, so amex-agent knows which caller asks and for whom.
-3. amex-agent checks the token, then reads that month's statement PDF from the person's own folder
-   under `statements/` and streams the charges back in batches, each with a category such as
-   `groceries` or `insurance`.
-4. If the PDF is not loaded yet, amex-agent keeps the task open and asks for it. Once the person
-   has loaded the file, the caller says "continue" and the same task finishes. A token
-   that has expired pauses the task the same way until the person signs in again.
-
-Categories come from a language model (Anthropic or OpenAI). Everything else is read from the
-statement, and each section's charges must add up to the total it prints, so a misread statement
-fails instead of returning a short month.
+- **Each card agent normalizes and categorizes its own card, so a caller needs nothing
+  card-specific.** Everything Amex-specific stops here: the PDF layout, Hebrew labels,
+  installments, purchases abroad. Rows leave amex-agent in the shared format, each in a category
+  with the agent's confidence, `high`, `medium` or `low`, or `uncategorized` when it cannot tell.
+  A caller can talk to any card agent that offers the skill, and owns only what spans cards: the
+  person's own categories (which outrank any card agent's), the budget, the totals and the summary.
 
 ## Getting started
 
@@ -74,7 +124,7 @@ host mode and `validate.sh`, and **Python 3.11+** for `validate.sh`.
 5. **Start:**
 
    ```bash
-   ./scripts/start.sh             # builds the image, starts two replicas on http://localhost:8020
+   ./scripts/start.sh             # builds the image, starts the replicas on http://localhost:8020
    ./scripts/validate.sh          # runs its own copy on :8021 and proves it as an A2A client would
    ```
 
@@ -112,35 +162,6 @@ All live in `scripts/`; run with `--help` for full usage.
 ./scripts/test.sh              # unit and integration tests; the Redis ones need Docker
 ```
 What each layer covers, and the latest conformance result, is in [docs/testing.md](docs/testing.md).
-
-## Architecture
-
-```mermaid
-flowchart LR
-  C([A2A client]) -->|JSON-RPC + SSE<br/>person's ID token + caller secret| N[nginx edge]
-  N --> E
-  subgraph R[amex-agent replicas]
-    E[Spring MVC transport] --> H[a2a-java request handler]
-    H --> X[Executor]
-  end
-  H <-->|tasks| T[(Redis)]
-  X -->|verify token| G[Google public keys]
-  X --> F[Person's statement folder]
-  F --> P[PDF parser]
-  X --> M[Merchant categorizer]
-  M -->|batches of unseen merchants| L[Spring AI model]
-```
-
-The edge spreads requests over the replicas. Each replica is two Spring controllers around the
-official a2a-java server library, behind a filter that admits registered callers. The replicas
-read one shared statements folder and keep their A2A tasks in Redis, so a task paused by one can
-be continued by any. The card work is a fixed pipeline: verify who the month is for,
-find their statement, parse it, categorize, stream. Details and decisions:
-[docs/architecture.md](docs/architecture.md); what it puts on the wire:
-[docs/a2a-contract.md](docs/a2a-contract.md).
-
-**Stack:** Java 21, Spring Boot, Spring AI, a2a-java, nimbus-jose-jwt, Apache PDFBox, Redis,
-nginx, Docker.
 
 ## License
 
