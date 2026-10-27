@@ -57,6 +57,7 @@ public class A2AEndpointTest {
   }
 
   @Autowired RestClient.Builder builder;
+  @Autowired TaskLease lease;
   @LocalServerPort int port;
 
   /** A read timeout turns a stream the server never closes into a test failure, not a hang. */
@@ -121,6 +122,24 @@ public class A2AEndpointTest {
     List<String> frames = out.lines().filter(line -> line.startsWith("data: ")).toList();
     assertThat(frames).isNotEmpty();
     assertThat(frames.getLast()).contains("TASK_STATE_INPUT_REQUIRED");
+  }
+
+  @Test
+  void post_continueWhileAnotherCallHoldsTheTasksLease_isRefusedAsAlreadyRunning() {
+    String paused = post("""
+        {"jsonrpc":"2.0","id":"5","method":"SendStreamingMessage","params":{"message":{
+        "messageId":"m5","role":"ROLE_USER","parts":[{"text":"%s"}]}}}""".formatted(WAIT));
+    Matcher taskId = Pattern.compile("\"taskId\":\"([^\"]+)\"").matcher(paused);
+    assertThat(taskId.find()).isTrue();
+    lease.acquire(taskId.group(1), "another replica/call");
+
+    String out = post("""
+        {"jsonrpc":"2.0","id":"6","method":"SendStreamingMessage","params":{"message":{
+        "messageId":"m6","role":"ROLE_USER","taskId":"%s","parts":[{"text":"go on"}]}}}"""
+        .formatted(taskId.group(1)));
+
+    assertThat(out).contains("\"error\"").contains("is already running");
+    assertThat(lease.ownerOf(taskId.group(1))).isEqualTo("another replica/call");
   }
 
   @Test

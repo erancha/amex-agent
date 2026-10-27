@@ -7,6 +7,7 @@ import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import org.a2aproject.sdk.server.agentexecution.AgentExecutor;
@@ -30,11 +31,12 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 /**
- * Wires the a2a-java server library as Spring beans: the task store (in memory, or shared through
- * Redis when APP_TASKS_REDIS_URL is set), the queue manager (which closes streams when a task
- * waits for input), the main event bus and its processor thread, the two a2a thread pools, the
- * caller-secret filter, the user resolver and the JSON-RPC handler (wrapping the SDK's default
- * request handler) that the endpoints delegate to.
+ * Wires the a2a-java server library as Spring beans: the task store and the task lease (in memory,
+ * or shared through Redis when APP_TASKS_REDIS_URL is set, with the lease sweep beside them), the
+ * queue manager (which closes streams when a task waits for input), the main event bus and its
+ * processor thread, the a2a thread pools, the caller-secret filter, the user resolver and the
+ * JSON-RPC handler (wrapping the SDK's default request handler, whose agent executor runs under
+ * the task's lease) that the endpoints delegate to.
  */
 @Configuration
 public class A2AServerConfiguration {
@@ -52,6 +54,38 @@ public class A2AServerConfiguration {
   @ConditionalOnExpression(REDIS_URL_SET)
   public RedisTaskStore redisTaskStore(A2AProperties properties) {
     return new RedisTaskStore(properties.tasks().redisUrl(), properties.tasks().ttl());
+  }
+
+  /** Without Redis: one process, so a lease in its memory keeps two calls off one task. */
+  @Bean
+  @ConditionalOnExpression("!(" + REDIS_URL_SET + ")")
+  public InMemoryTaskLease inMemoryTaskLease(A2AProperties properties) {
+    return new InMemoryTaskLease(properties.tasks().lease());
+  }
+
+  /** With Redis: a lease any replica sees, so no two replicas run one task. */
+  @Bean
+  @ConditionalOnExpression(REDIS_URL_SET)
+  public RedisTaskLease redisTaskLease(A2AProperties properties) {
+    return new RedisTaskLease(properties.tasks().redisUrl(), properties.tasks().lease());
+  }
+
+  /**
+   * With Redis only: without it, tasks live and die with the one process, so no task can be left
+   * by another replica.
+   */
+  @Bean
+  @ConditionalOnExpression(REDIS_URL_SET)
+  public LeaseSweep leaseSweep(RedisTaskStore store, RedisTaskLease lease,
+      A2AProperties properties) {
+    LeaseSweep sweep = new LeaseSweep(store, lease);
+    sweep.start(properties.tasks().lease());
+    return sweep;
+  }
+
+  @Bean
+  public LeaseOwners leaseOwners() {
+    return new LeaseOwners();
   }
 
   @Bean
@@ -96,6 +130,13 @@ public class A2AServerConfiguration {
         Thread.ofPlatform().name("a2a-agent-", 0).daemon(true).factory());
   }
 
+  /** Renews the leases of the tasks this replica works on; each renewal is one short call. */
+  @Bean(defaultCandidate = false)
+  public ScheduledExecutorService leaseRenewals() {
+    return Executors.newSingleThreadScheduledExecutor(
+        Thread.ofPlatform().name("lease-renewal").daemon(true).factory());
+  }
+
   /** Each open stream blocks one thread polling its event queue, so this pool is unbounded. */
   @Bean(defaultCandidate = false)
   public ExecutorService a2aEventConsumerExecutor() {
@@ -111,10 +152,13 @@ public class A2AServerConfiguration {
   @Bean
   public JSONRPCHandler jsonRpcHandler(AgentCard card, AgentExecutor agentExecutor,
       TaskStore taskStore, QueueManager queueManager, MainEventBusProcessor processor,
+      TaskLease lease, A2AProperties properties,
+      @Qualifier("leaseRenewals") ScheduledExecutorService leaseRenewals,
       @Qualifier("a2aInternalExecutor") Executor internal,
       @Qualifier("a2aEventConsumerExecutor") Executor eventConsumer) {
     RequestHandler requestHandler = DefaultRequestHandler.builder()
-        .agentExecutor(agentExecutor)
+        .agentExecutor(new LeasedAgentExecutor(agentExecutor, lease, properties.tasks().lease(),
+            leaseRenewals))
         .taskStore(taskStore)
         .queueManager(queueManager)
         .pushConfigStore(new InMemoryPushNotificationConfigStore())

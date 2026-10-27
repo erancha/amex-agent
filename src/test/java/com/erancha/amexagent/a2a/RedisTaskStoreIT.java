@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import org.a2aproject.sdk.server.tasks.TaskPersistenceException;
 import org.a2aproject.sdk.spec.DataPart;
 import org.a2aproject.sdk.spec.ListTasksParams;
 import org.a2aproject.sdk.spec.Message;
@@ -68,6 +69,10 @@ class RedisTaskStoreIT {
         .status(new TaskStatus(TaskState.TASK_STATE_INPUT_REQUIRED, question, null)).build();
   }
 
+  private static Task working(Task task) {
+    return Task.builder(task).status(new TaskStatus(TaskState.TASK_STATE_WORKING)).build();
+  }
+
   private static Task completed(Task task) {
     return Task.builder(task).status(new TaskStatus(TaskState.TASK_STATE_COMPLETED)).build();
   }
@@ -88,6 +93,44 @@ class RedisTaskStoreIT {
     second.save(completed(read), false);
     assertThat(first.isTaskFinalized("t1")).isTrue();
     assertThat(first.isTaskActive("t1")).isFalse();
+  }
+
+  @Test
+  void aSaveThatWouldChangeAFinalTask_isRefusedAndLeavesItAsItIs() {
+    Task task = paused("t1", "c1");
+    first.save(completed(task), false);
+
+    assertThatThrownBy(() -> second.save(working(task), false))
+        .isInstanceOf(TaskPersistenceException.class).hasMessageContaining("t1");
+    assertThat(first.get("t1").status().state()).isEqualTo(TaskState.TASK_STATE_COMPLETED);
+  }
+
+  @Test
+  void workingTasks_areListedWithTheTextTheyAreStoredAs() {
+    first.save(working(paused("t1", "c1")), false);
+    second.save(paused("t2", "c2"), false);
+
+    List<RedisTaskStore.StoredTask> working = second.workingTasks();
+
+    assertThat(working).extracting(stored -> stored.task().id()).containsExactly("t1");
+    assertThat(working.getFirst().json()).isEqualTo(first.workingTasks().getFirst().json());
+  }
+
+  @Test
+  void aReplacement_isStoredOnlyWhileTheTaskIsStoredAsExpected() {
+    first.save(working(paused("t1", "c1")), false);
+    String read = second.workingTasks().getFirst().json();
+    Task failed = Task.builder(first.get("t1"))
+        .status(new TaskStatus(TaskState.TASK_STATE_FAILED)).build();
+
+    first.save(Task.builder(working(paused("t1", "c1"))).metadata(Map.of("step", "2")).build(),
+        false);
+    assertThat(second.replaceIfUnchanged("t1", read, failed)).isFalse();
+    assertThat(first.get("t1").status().state()).isEqualTo(TaskState.TASK_STATE_WORKING);
+
+    String reread = second.workingTasks().getFirst().json();
+    assertThat(second.replaceIfUnchanged("t1", reread, failed)).isTrue();
+    assertThat(first.get("t1").status().state()).isEqualTo(TaskState.TASK_STATE_FAILED);
   }
 
   @Test

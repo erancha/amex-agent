@@ -55,9 +55,11 @@ public record A2AProperties(
   /**
    * Where A2A tasks are kept. A blank redisUrl keeps them in this process's memory; a Redis URL
    * keeps them in that Redis, where every replica given the same URL shares them. Redis deletes a
-   * task ttl after its last change.
+   * task ttl after its last change. A task's lease lapses once a full lease time passes without
+   * its holder renewing it, and LeaseSweep runs once per lease time.
    */
-  public record Tasks(@DefaultValue("") String redisUrl, @NotNull Duration ttl) {}
+  public record Tasks(@DefaultValue("") String redisUrl, @NotNull Duration ttl,
+      @NotNull Duration lease) {}
 
   public record Categorizer(double highConfidence, double mediumConfidence, int batchSize) {}
 }

@@ -34,6 +34,7 @@ import org.a2aproject.sdk.spec.InvalidParamsError;
 import org.a2aproject.sdk.spec.InvalidRequestError;
 import org.a2aproject.sdk.spec.JSONParseError;
 import org.a2aproject.sdk.spec.MethodNotFoundError;
+import org.a2aproject.sdk.spec.UnsupportedOperationError;
 import org.a2aproject.sdk.transport.jsonrpc.context.JSONRPCContextKeys;
 import org.a2aproject.sdk.transport.jsonrpc.handler.JSONRPCHandler;
 import org.slf4j.Logger;
@@ -56,10 +57,15 @@ public class A2AEndpoint {
   private static final Logger log = LoggerFactory.getLogger(A2AEndpoint.class);
   private final JSONRPCHandler handler;
   private final SseStreamWriter sse;
+  private final TaskLease lease;
+  private final LeaseOwners owners;
 
-  public A2AEndpoint(JSONRPCHandler handler, SseStreamWriter sse) {
+  public A2AEndpoint(JSONRPCHandler handler, SseStreamWriter sse, TaskLease lease,
+      LeaseOwners owners) {
     this.handler = handler;
     this.sse = sse;
+    this.lease = lease;
+    this.owners = owners;
   }
 
   /** Exactly one of the two fields is set: a single JSON document or an SSE event stream. */
@@ -163,12 +169,39 @@ public class A2AEndpoint {
       case SendStreamingMessageRequest r -> {
         handler.authorizeTaskAccess(
             r.getParams().message().taskId(), context, TaskOperation.MESSAGE_SEND_STREAM);
-        yield Outcome.stream(handler.onMessageSendStream(r, context));
+        yield Outcome.stream(sendStream(r, context));
       }
       case SubscribeToTaskRequest r -> {
         handler.authorizeTaskAccess(r.getParams().id(), context, TaskOperation.SUBSCRIBE_TO_TASK);
         yield Outcome.stream(handler.onSubscribeToTask(r, context));
       }
     };
+  }
+
+  /**
+   * Opens a streaming send under a lease owner of its own. A continue takes its task's lease here,
+   * before the SDK resumes the task, so of two continues sent at once only one runs and the other
+   * is refused as already running; refusing inside the executor would instead fail the task the
+   * other call runs. The executor releases the lease when its run ends. This method releases it
+   * only when the SDK refuses the message here; a refusal the SDK reports on the stream leaves the
+   * lease to lapse.
+   */
+  private Flow.Publisher<? extends A2AResponse<?>> sendStream(SendStreamingMessageRequest request,
+      ServerCallContext context) {
+    String owner = owners.newCall();
+    context.getState().put(CallContexts.LEASE_OWNER_KEY, owner);
+    String taskId = request.getParams().message().taskId();
+    if (taskId == null) {
+      return handler.onMessageSendStream(request, context);
+    }
+    if (!lease.acquire(taskId, owner)) {
+      throw new UnsupportedOperationError(null, "task " + taskId + " is already running", null);
+    }
+    try {
+      return handler.onMessageSendStream(request, context);
+    } catch (RuntimeException e) {
+      lease.release(taskId, owner);
+      throw e;
+    }
   }
 }

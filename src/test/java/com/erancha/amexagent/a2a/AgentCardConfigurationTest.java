@@ -19,7 +19,8 @@ class AgentCardConfigurationTest {
         new A2AProperties.A2a(new A2AProperties.Auth(authRequired),
             List.of(new Caller("test-caller", "secret", "client-1"))),
         new A2AProperties.Categorizer(0.85, 0.6, 40),
-        new A2AProperties.Tasks("", java.time.Duration.ofDays(30)));
+        new A2AProperties.Tasks("", java.time.Duration.ofDays(30),
+            java.time.Duration.ofMinutes(1)));
   }
 
   @Test

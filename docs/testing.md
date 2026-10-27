@@ -54,10 +54,16 @@ and call it as a registered caller would.
   month pauses and asks again on `continue`, a call without the person's token pauses for sign-in,
   a wrong secret is HTTP 401, and a malformed month is an error naming it.
 - **Two replicas** sharing one Redis and one statements folder: a month that pauses on the first
-  agent completes when `continue` is sent to the second, and the first then reports it completed.
-  This is the scaling guarantee a caller relies on.
+  agent completes when `continue` is sent to the second, and the first then reports it completed;
+  two continues sent at once, one to each, run the task once, with its 24 rows; and a task left
+  working by a stopped replica is failed by the lease sweep, after which the month is fetched again.
+  These are the scaling guarantees a caller relies on.
 - **The Redis task store** on its own: a task saved by one store is read in full by another, its
-  pause included, and an unreachable Redis fails startup naming `APP_TASKS_REDIS_URL`.
+  pause included; a save that would change an ended task is refused; and an unreachable Redis fails
+  startup naming `APP_TASKS_REDIS_URL`.
+- **The task lease and the lease sweep** on Redis: one rule set runs against both the Redis lease
+  and the in-memory one, and the sweep fails a working task only once it is found without a lease,
+  unchanged, on two passes.
 
 ## Client-side validation
 

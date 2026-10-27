@@ -46,9 +46,11 @@ repo owns. Do not change the artifact schema or taxonomy: they are the contract'
   auth setup.
 - `A2ATransportIT` runs on fixed port 18020 because the card advertises the URL the client calls.
 - The replicas share their A2A tasks through `RedisTaskStore` when `APP_TASKS_REDIS_URL` is set,
-  so any replica can continue a paused task; a working task runs in the replica streaming it, and
-  the categorizer cache is per process. docs/architecture/scaling.md states what the replicas must
-  guarantee; shortfalls are GitHub issues labelled `scaling-safety` or `scaling-out`.
+  so any replica can continue a paused task; a working task runs in the replica streaming it,
+  under a task lease (`TaskLease`, taken by `LeasedAgentExecutor`, and by `A2AEndpoint` for a
+  continue) that `LeaseSweep` checks; the categorizer cache is per process.
+  docs/architecture/scaling.md states what the replicas must guarantee; shortfalls are GitHub
+  issues labelled `scaling-safety` or `scaling-out`.
 - `statements/` serves `/statements.html`, `/api/auth/config` and `/api/statements`: sign in with
   the agent's own Google client, load a statement PDF into the person's folder under
   `APP_STATEMENTS_DIR` (`<root>/<sub>/`), list their files and delete one, nothing more. The API

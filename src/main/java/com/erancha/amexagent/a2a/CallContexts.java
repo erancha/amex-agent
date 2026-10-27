@@ -23,6 +23,8 @@ import org.a2aproject.sdk.transport.jsonrpc.context.JSONRPCContextKeys;
 public final class CallContexts {
   /** State key of the admitted Caller; absent when authentication is off. */
   public static final String CALLER_KEY = "caller";
+  /** State key of the owner under which this call takes and releases task leases. */
+  public static final String LEASE_OWNER_KEY = "lease-owner";
 
   private CallContexts() {}
 
