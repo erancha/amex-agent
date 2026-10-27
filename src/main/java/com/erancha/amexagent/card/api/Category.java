@@ -12,13 +12,16 @@ import java.util.Locale;
 public enum Category {
   GROCERIES("supermarkets, grocery stores, bakeries, butchers, greengrocers"),
   DINING("restaurants, cafes, bars, takeaway, food delivery"),
-  TRANSPORT("fuel, public transport, taxis, tolls, parking, car repairs, car licensing"),
+  TRANSPORT("fuel, public transport, taxis, tolls, parking, car repairs, car licensing, car insurance"),
   UTILITIES("electricity, water, gas, phone, internet, water-filter rental"),
-  HOUSING("rent, property tax (arnona), building committee, home repairs, hardware stores"),
-  HEALTH("clinics, doctors, dentists, pharmacies, gyms and fitness clubs"),
-  INSURANCE("insurance premiums of any kind"),
+  HOUSING("rent, property tax (arnona), building committee, home and appliance insurance, appliances fixed"
+      + " to the building such as air conditioners and water heaters, home repairs, hardware stores"),
+  HEALTH("clinics, doctors, dentists, pharmacies, gyms and fitness clubs, health insurance"),
+  INSURANCE("only a policy that protects no other category's purpose, such as life insurance, or one whose"
+      + " purpose the statement does not tell; car, health, home and appliance policies go to"
+      + " transport, health and housing"),
   EDUCATION("schools, kindergartens, childcare, courses, children's activities"),
-  SHOPPING("clothing, electronics, electrical appliances, furniture, online marketplaces"),
+  SHOPPING("clothing, electronics, furniture, online marketplaces, appliances that move with you"),
   ENTERTAINMENT("streaming and TV, cinema, shows, games, hobbies, leisure clubs"),
   TRAVEL("flights, hotels, car rental abroad, travel agencies"),
   GIFTS("gift cards, flowers, presents, donations"),

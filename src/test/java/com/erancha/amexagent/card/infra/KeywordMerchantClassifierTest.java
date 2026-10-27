@@ -30,7 +30,7 @@ class KeywordMerchantClassifierTest {
         new MerchantQuery("הראל-ביטוח בריאות", "ביטוח"),
         new MerchantQuery("NETFLIX.COM 519479", null), new MerchantQuery("something new", null)));
     assertThat(out).extracting(MerchantCategory::category)
-        .containsExactly("insurance", "entertainment", "uncategorized");
+        .containsExactly("health", "entertainment", "uncategorized");
     assertThat(out.get(1).merchant()).isEqualTo("Netflix");
     assertThat(out.get(2).merchant()).isEqualTo("something new");
     assertThat(out.get(2).confidence()).isZero();

@@ -26,6 +26,12 @@ public class KeywordMerchantClassifier implements MerchantClassifier {
     KNOWN.put("apple tv", new Known("Apple TV", "entertainment"));
     KNOWN.put("yes", new Known("yes", "entertainment"));
     KNOWN.put("שטראוס מים", new Known("Strauss Water", "utilities"));
+    // Insurance goes by what it protects; a policy whose purpose the text does not tell stays
+    // insurance, so the specific keywords must precede the generic ones.
+    KNOWN.put("ביטוח בריאות", new Known("Health insurance", "health"));
+    KNOWN.put("ביטוח רכב", new Known("Car insurance", "transport"));
+    KNOWN.put("חובה", new Known("Compulsory car insurance", "transport"));
+    KNOWN.put("ביטוח דירה", new Known("Home insurance", "housing"));
     KNOWN.put("ביטוח", new Known("Insurance", "insurance"));
     KNOWN.put("ישיר", new Known("Direct Insurance", "insurance"));
     KNOWN.put("דר יוסי", new Known("Dr. Yossi", "health"));
