@@ -151,7 +151,7 @@ All live in `scripts/`; run with `--help` for full usage.
 | `init-env.sh` | Create `.env`; `--force` overwrites. |
 | `register-caller.sh` | Register an A2A caller (name, secret, Google client id) in `allowed-callers.yaml`, or replace its entry. |
 | `start.sh` | Run the agent in Docker, or `--host` as a local JVM. |
-| `docker-helper.sh` | `--stop`, `--logs [-e] [service...]` or `--ps` for the Docker run. |
+| `docker-helper.sh` | `--stop [--volumes]`, `--logs [-e] [service...]` or `--ps` for the Docker run; `--volumes` also drops the paused tasks. |
 | `test.sh` | Run unit tests (`unit`) or unit and integration tests (`it`, `all`, the default). |
 | `validate.sh` | Start amex-agent against its test statement with a throwaway signing key and prove it end to end as a registered A2A caller; `--tck` also runs the official A2A conformance suite. |
 | `anonymize-statement.py` | Copy a statement PDF with the holder's private details replaced, to use as a test fixture. |

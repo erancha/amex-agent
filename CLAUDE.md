@@ -15,7 +15,7 @@ repo owns. Do not change the artifact schema or taxonomy: they are the contract'
 - `start.sh [--host]` — Docker (default: Redis, the compose file's replicas, nginx edge on :8020) or
   `mvn spring-boot:run` (one process, tasks in memory); stops before launching when access is
   required and no callers file exists
-- `docker-helper.sh --stop|--logs [-e] [service...]|--ps`
+- `docker-helper.sh --stop [--volumes]|--logs [-e] [service...]|--ps`
 - `test.sh [unit|it|all]` — `mvn test` / `mvn verify`; needs no API key, but the Redis integration
   tests need Docker
 - `validate.sh [--tck]` — starts the packaged jar on :8021 against the sample under the `e2e`
