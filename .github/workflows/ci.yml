@@ -7,10 +7,10 @@ on:
 # Runs the same entry point developers use, so CI and local verification cannot drift.
 jobs:
   tests:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: "21"
@@ -19,7 +19,7 @@ jobs:
         run: bash scripts/test.sh all
       - name: Script tests
         run: for t in scripts/tests/test_*.sh; do bash "$t"; done
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - name: Client-side validation
