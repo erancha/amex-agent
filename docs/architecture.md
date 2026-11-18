@@ -136,11 +136,12 @@ it.
 ## Deployment
 
 The stack runs under Docker Compose: Redis, two agent replicas and the nginx edge, the only
-service with a published port. `./scripts/deploy.sh` runs it on this machine, with the edge on
-the loopback interface at `EDGE_HOST_PORT` (8020) and the statements folder mounted into the
-replicas. `./scripts/deploy.sh --ec2` runs the same stack on the EC2 instance of loan-simulator's
-stack, as a guest behind a CloudFront distribution of its own
-([ADR 0006](adr/0006-guest-on-loan-simulators-ec2-instance.md)).
+service with a published port. `./scripts/deploy.sh` runs it on this machine, with the edge on the
+loopback interface at `EDGE_HOST_PORT` (8020) and the statements folder mounted into the replicas.
+`./scripts/deploy.sh --ec2` runs the same stack on an EC2 instance, behind a CloudFront distribution
+of its own ([ADR 0006](adr/0006-guest-on-loan-simulators-ec2-instance.md)): the stack hosts the
+instance, or joins another Docker Compose repo's as a guest
+([ADR 0007](adr/0007-any-docker-repo-can-host-the-instance.md)).
 
 - **The guest stack.** `scripts/template-ec2.yaml`, shared by every Docker Compose repo, opens
   the edge's port in the host's security group to CloudFront's servers alone and points the

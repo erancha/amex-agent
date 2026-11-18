@@ -23,9 +23,9 @@ export EDGE_HOST_PORT="8020"
 # Read by scripts/lib/ec2.sh only, for deploy.sh --ec2. The stack's name on main; any other
 # branch deploys EC2_STACK-fb.
 export EC2_STACK="amex-agent"
-# This repo is a guest on the EC2 instance of loan-simulator's stack, which must be deployed
-# first; this stack adds its own port and CloudFront distribution.
-export EC2_HOST_STACK="loan-simulator"
+# Used only when the stack is a host (EC2_HOST_STACK of params.sh blank): the instance's ARM
+# type, sized for every stack it runs; a change stops and starts the same instance.
+export EC2_INSTANCE_TYPE="t4g.small"
 # The port CloudFront reaches this stack at on the instance; every stack on the instance has its
 # own.
 export EC2_ORIGIN_PORT="${EDGE_HOST_PORT}"

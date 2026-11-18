@@ -5,8 +5,8 @@
 # a caller's operator registers this agent with.
 #
 #   ./scripts/deploy.sh          on this machine's Docker
-#   ./scripts/deploy.sh --ec2    on the EC2 instance of loan-simulator's stack, as a guest behind a
-#                                CloudFront distribution of its own (created on the first run)
+#   ./scripts/deploy.sh --ec2    on an EC2 instance, behind a CloudFront distribution of its own
+#                                (created on the first run)
 #   -h, --help                   show this help
 #
 # The agent refuses to start when APP_AUTH_CLIENT_ID, APP_LLM_MODEL or APP_LLM_API_KEY is blank,
@@ -22,10 +22,11 @@
 # endpoint), and the replicas mount the statements folder APP_STATEMENTS_DIR.
 #
 # --ec2 also needs the access key pair and region in scripts/lib/aws-config.sh, and deploys to
-# the account its credentials belong to, where loan-simulator's stack (EC2_HOST_STACK of
-# stack-params.sh) must already run. It creates or updates the CloudFormation stack of
+# the account its credentials belong to. The stack is the instance's host, unless EC2_HOST_STACK
+# of params.sh names another Docker Compose repo's host stack, deployed first from its repo: then
+# it is a guest on that stack's instance. It creates or updates the CloudFormation stack of
 # scripts/template-ec2.yaml (the git branch selects it: amex-agent on main, amex-agent-fb on any
-# other branch), which opens EC2_ORIGIN_PORT on the host's instance to CloudFront only and puts a
+# other branch), which opens EC2_ORIGIN_PORT on the instance to CloudFront only and puts a
 # CloudFront distribution in front of it. It then builds the images here for ARM, loads them
 # into the instance's Docker daemon over SSH, and runs Compose against that daemon. The settings
 # files and the callers registry stay on this machine; each container's own settings, secrets

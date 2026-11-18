@@ -21,13 +21,13 @@ than the license contact (`PUBLISHED_SETTINGS` of `lib/settings-guard.sh`).
   `allowed-callers.yaml` reaches the replicas as the Compose secret `allowed-callers`, whose
   content `compose()` exports as `APP_A2A_CALLERS_YAML`; Compose writes it into the container
   through the Docker API, so no file is bind-mounted but the local statements folder.
-- `--ec2` runs Compose here against the instance's Docker daemon over an SSH-forwarded socket,
-  so a bind mount would name a path that does not exist there: `docker-compose.ec2.yml` swaps the
+- `--ec2` runs Compose here against the instance's Docker daemon over an SSH-forwarded socket, so a
+  bind mount would name a path that does not exist there: `docker-compose.ec2.yml` swaps the
   statements folder for the `statements` volume, and the edge's image (`nginx/Dockerfile`) has
-  `nginx/default.conf` built in. Every image this repo builds is tagged `:ec2` there, which is
-  how `ec2_built_images` finds what to load. This repo is a guest on loan-simulator's instance
-  (`EC2_HOST_STACK`); `docker-compose.ec2.yml` sets `APP_AGENT_URL` to the stack's CloudFront
-  address.
+  `nginx/default.conf` built in. Every image this repo builds is tagged `:ec2` there, which is how
+  `ec2_built_images` finds what to load. The stack hosts the instance or is a guest on another
+  repo's (`EC2_HOST_STACK` of `params.sh`); `docker-compose.ec2.yml` sets `APP_AGENT_URL` to the
+  stack's CloudFront address.
 - `lib/ec2.sh`, `lib/settings-guard.sh`, `template-ec2.yaml` and `.githooks/pre-commit` are
   byte-identical copies of loan-simulator's; change them there and copy them back.
 - Before any AWS work, read this account's inventory, the
@@ -64,7 +64,7 @@ than the license contact (`PUBLISHED_SETTINGS` of `lib/settings-guard.sh`).
   `--force` is given.
 - `deploy.sh` — runs `init-env.sh` first and stops on a list of every required setting still
   blank or a missing caller, then builds and runs Redis, two replicas and the edge on :8020 and
-  returns once the agent answers; `--ec2` does it on loan-simulator's instance behind this
+  returns once the agent answers; `--ec2` does it on an EC2 instance behind this
   repo's CloudFront distribution, in the account of the gitignored `lib/aws-config.sh`.
 - `docker-helper.sh [--ec2]` — `--stop [--volumes]`, `--logs [-e] [service...]`, `--ps`;
   `--ec2 --delete-stack` deletes the guest stack.

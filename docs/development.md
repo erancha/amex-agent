@@ -74,19 +74,22 @@ Docker runs the stack; `deploy.sh` and `docker-helper.sh` stop when it is not re
   http://localhost:8020. It stops early while no caller is registered. It ends with the values a
   caller's operator registers this agent with: its name, the advertised A2A URL and the
   statements page's URL.
-- `deploy.sh --ec2` — deploys to the EC2 instance of loan-simulator's stack in the account of
-  `aws-config.sh`, and needs the AWS CLI, `ssh` and `curl`; loan-simulator's stack must be deployed
-  first. `aws-config.sh` must name the account and region of loan-simulator's stack, since a guest's
-  stacks import the host stack's exports. It creates or updates this repo's guest stack of
-  [`template-ec2.yaml`](../scripts/template-ec2.yaml) (a port on the instance and a CloudFront
+- `deploy.sh --ec2` — deploys to an EC2 instance in the account of `aws-config.sh`, and needs the
+  AWS CLI, `ssh` and `curl`. The stack is a host, with an instance of its own, while
+  `EC2_HOST_STACK` of `params.sh` is blank. Set to another Docker Compose repo's host stack, it is a
+  guest on that instance, which is deployed first from its repo; `aws-config.sh` then names that
+  stack's account and region, since a guest's stacks import the host stack's exports
+  ([ADR 0007](adr/0007-any-docker-repo-can-host-the-instance.md)).
+  It creates or updates this repo's stack of [`template-ec2.yaml`](../scripts/template-ec2.yaml) (a
+  port on the instance and a CloudFront
   distribution), builds the images here for ARM, loads them into the instance's Docker daemon over
   SSH and starts the stack there. It prints the CloudFront address, which the card advertises and
   which is the statements page's address, to hand to the callers' operators and to register with
   Google ([Sign-in](sign-in.md#setting-up-google)). The git branch selects the stack: `main` deploys
-  `amex-agent`, any other branch `amex-agent-fb` on loan-simulator's `loan-simulator-fb` instance;
-  an exported `STACK_NAME` wins. Every deploy, host or guest, also makes sure the instance has a 1
-  GB swap file (`prepare_ec2_host` in `lib/ec2.sh`), so a burst beyond the instance's 2 GB of memory
-  slows the stacks instead of killing a container.
+  `amex-agent`, any other branch `amex-agent-fb`, a guest on the host's `-fb` instance; an exported
+  `STACK_NAME` wins. Every deploy, host or guest, also makes sure the instance has a 1 GB swap file
+  (`prepare_ec2_host` in `lib/ec2.sh`), so a burst beyond the instance's 2 GB of memory slows the
+  stacks instead of killing a container.
 - [`docker-helper.sh`](../scripts/docker-helper.sh) — `--stop [--volumes]`,
   `--logs [-e] [service...]` or `--ps` for the stack; `--volumes` also drops the paused tasks
   held in the Redis volume, and on EC2 the statements volume. With `--ec2` as its first argument

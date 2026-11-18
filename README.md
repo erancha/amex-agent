@@ -94,11 +94,12 @@ The stack runs with Docker Compose, on this machine or on an EC2 instance. It ne
    `{"month": "2026-10"}`, the person's token as the bearer token and the secret in
    `X-Caller-Secret`. `./scripts/tools/validate.sh` makes the same calls against a throwaway
    agent.
-7. To run the stack on AWS instead, on loan-simulator's EC2 instance behind a CloudFront
-   distribution of its own, run `./scripts/deploy.sh --ec2`. It also names the access key pair
-   and region to fill in in `aws-config.sh`, and at the end prints the CloudFront address that
-   the card advertises, to hand to the callers' operators and to add to the Google client
-   ([Development & deployment](docs/development.md#deployment-scripts-scripts)).
+7. To run the stack on AWS instead, on an EC2 instance behind a CloudFront distribution of its own,
+   run `./scripts/deploy.sh --ec2`: on an instance of its own, or as a guest on another Docker
+   Compose repo's instance when `EC2_HOST_STACK` of `params.sh` names that repo's stack. It also
+   names the access key pair and region to fill in in `aws-config.sh`, and at the end prints the
+   CloudFront address that the card advertises, to hand to the callers' operators and to add to the
+   Google client ([Development & deployment](docs/development.md#deployment-scripts-scripts)).
 
 `./scripts/test.sh` runs the tests; none needs a model key, and the Redis integration tests need
 Docker. [Development & deployment](docs/development.md) has the details and the gotchas.
@@ -110,7 +111,7 @@ Docker. [Development & deployment](docs/development.md) has the details and the 
 - `test.sh` — checks the scripts, then runs the unit tests (`unit`), or the unit and integration
   tests (the default)
 - `deploy.sh` — builds and starts Redis, the replicas and the edge in Docker; `--ec2` does it on
-  loan-simulator's EC2 instance behind CloudFront
+  an EC2 instance behind CloudFront
 - `docker-helper.sh` — stops the stack, follows its logs or shows its containers
 
 Each script's header comment is its full documentation, and `--help` prints it. The hands-on
