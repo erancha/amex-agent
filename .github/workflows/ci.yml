@@ -15,12 +15,10 @@ jobs:
           distribution: temurin
           java-version: "21"
           cache: maven
-      - name: Unit and integration tests
+      - name: Scripts' checks, unit and integration tests
         run: bash scripts/test.sh all
-      - name: Script tests
-        run: for t in scripts/tests/test_*.sh; do bash "$t"; done
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - name: Client-side validation
-        run: bash scripts/validate.sh
+        run: bash scripts/tools/validate.sh

@@ -1,9 +1,10 @@
 # Codebase structure
 
-The code under `src/main/java/com/erancha/amexagent/` has two halves: packages that fit the
-a2a-java server library into Spring and check who is calling, and the card pipeline that turns a
-statement into categorized rows. The A2A side knows nothing of PDFs or models, so the card work
-can change without touching the protocol.
+This page details the [Codebase structure](../architecture.md#codebase-structure) section of the
+architecture. The code under `src/main/java/com/erancha/amexagent/` has two halves: packages
+that fit the a2a-java server library into Spring and check who is calling, and the card pipeline
+that turns a statement into categorized rows. The A2A side knows nothing of PDFs or models, so the
+card work can change without touching the protocol.
 
 | Package | Responsibility |
 |---|---|

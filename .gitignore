@@ -1,17 +1,23 @@
-target/
+__pycache__/
+*.py[cod]
 .venv/
 .validate-venv/
+target/
+# The official A2A conformance suite, cloned by scripts/tools/validate.sh --tck.
 .tck/
-node_modules/
-__pycache__/
-*.pyc
+# The settings files init-env.sh creates from their committed .example.sh files.
+/scripts/lib/secrets.sh
+/scripts/lib/params.sh
+/scripts/lib/aws-config.sh
+# The throwaway Instance Connect key pair and the socket of the EC2 instance's Docker daemon.
+/scripts/lib/.ssh/
 .env
 .env.*
-!.env.example
-allowed-callers.yaml
+# The registered A2A callers and their secrets, written by scripts/tools/register-caller.sh.
+/allowed-callers.yaml
+docs/superpowers/*
 .claude/
 CLAUDE.local.md
-docs/superpowers/
 .superpowers/
 
 # Card statements are private and stay local; the folder itself is tracked.

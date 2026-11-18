@@ -1,0 +1,33 @@
+# What changes when the stack runs on the EC2 instance; scripts/deploy.sh --ec2 passes this file
+# after docker-compose.yml. The images are built on the deployer's machine for the instance's ARM
+# processor, under their own tags so the local stack's images stay as they are. The edge is
+# published on the instance's address, where the security group admits only CloudFront; Redis and
+# the replicas stay unpublished. The services start again after the instance stops and starts.
+services:
+  redis:
+    restart: unless-stopped
+
+  # The instance's Docker daemon cannot see this machine's statements folder, so the replicas
+  # share the statements volume, loaded through the statements page, and run as the image's own
+  # user, which owns it.
+  amex-agent:
+    image: amex-agent:ec2
+    platform: linux/arm64
+    restart: unless-stopped
+    user: !reset null
+    # The card advertises the stack's CloudFront address, the one callers outside the instance
+    # reach.
+    environment:
+      APP_AGENT_URL: "${EC2_URL:?set by scripts/lib/ec2.sh}"
+    volumes: !override
+      - statements:/statements
+
+  edge:
+    image: amex-edge:ec2
+    platform: linux/arm64
+    restart: unless-stopped
+    ports: !override
+      - "${EC2_ORIGIN_PORT:?set in stack-params.sh}:8020"
+
+volumes:
+  statements:

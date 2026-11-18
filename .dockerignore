@@ -6,4 +6,6 @@ target
 docs
 scripts
 *.md
-.env
+allowed-callers.yaml
+statements
+backup

@@ -2,10 +2,11 @@
 
 Four layers, each proving something the others cannot. Unit tests pin the rules of parsing,
 categorizing, sign-in and the transport. Integration tests run the real agent, alone and as two
-replicas, through the a2a-java client. `validate.sh` runs the packaged jar through the Python
+replicas, through the a2a-java client. `tools/validate.sh` runs the packaged jar through the Python
 a2a-sdk client, a second implementation of the protocol. The official A2A conformance suite checks
 the transport against the protocol itself. None needs a model API key, and none reaches Google: the
-tests sign their own tokens with a key they generate.
+tests sign their own tokens with a key they generate. This page details the tests behind
+[Development](development.md#backend-tests).
 
 **Contents:** [Running](#running) · [Unit](#unit) · [Integration](#integration) ·
 [Client-side validation](#client-side-validation) · [Conformance](#conformance) · [CI](#ci)
@@ -14,11 +15,10 @@ tests sign their own tokens with a key they generate.
 
 | Command | Runs | Needs |
 |---|---|---|
-| `./scripts/test.sh unit` | Unit tests | Java 21, Maven |
-| `./scripts/test.sh` (or `it`, `all`) | Unit and integration tests | Java 21, Maven, Docker for Redis |
-| `./scripts/validate.sh` | The packaged jar, proved from the client side | Java 21, Maven, Python 3.11+, openssl |
-| `./scripts/validate.sh --tck` | The above, then the A2A conformance suite | as above, plus network to fetch the suite |
-| `for t in scripts/tests/test_*.sh; do bash "$t"; done` | The operator scripts' checks | Bash |
+| `./scripts/test.sh unit` | Script checks and shell tests, then unit tests | Java 21, Maven |
+| `./scripts/test.sh` (or `it`, `all`) | Script checks and shell tests, then unit and integration tests | Java 21, Maven, Docker for Redis |
+| `./scripts/tools/validate.sh` | The packaged jar, proved from the client side | Java 21, Maven, Python 3.11+, openssl |
+| `./scripts/tools/validate.sh --tck` | The above, then the A2A conformance suite | as above, plus network to fetch the suite |
 
 ## Unit
 
@@ -67,12 +67,12 @@ and call it as a registered caller would.
 
 ## Client-side validation
 
-`validate.sh` packages the jar, starts it on port 8021 with a throwaway signing key standing in for
-Google and a caller registered by `register-caller.sh`, and runs a Python client on the a2a-sdk, a
-second implementation of the protocol that the agent must agree with. It prints one `PASS` line per
-check and stops at the first failure: the card's skill, streaming and two security schemes; a
-covered month streaming its 24 categorized rows; a missing month pausing and asking again on
-`continue`; cancel of a waiting and of a completed task; both sign-in failures pausing in
+`tools/validate.sh` packages the jar, starts it on port 8021 with a throwaway signing key standing
+in for Google and a caller registered by `tools/register-caller.sh`, and runs a Python client on the
+a2a-sdk, a second implementation of the protocol that the agent must agree with. It prints one
+`PASS` line per check and stops at the first failure: the card's skill, streaming and two security
+schemes; a covered month streaming its 24 categorized rows; a missing month pausing and asking again
+on `continue`; cancel of a waiting and of a completed task; both sign-in failures pausing in
 auth-required; a wrong secret answered with 401; and the statements API serving only the signed-in
 person.
 
@@ -82,13 +82,13 @@ answers, so it never validates an agent left over from an interrupted run.
 
 ## Conformance
 
-`./scripts/validate.sh --tck` runs the official
+`./scripts/tools/validate.sh --tck` runs the official
 [A2A conformance suite (TCK)](https://github.com/a2aproject/a2a-tck) against a second agent on port
 8022, over JSON-RPC, at the MUST level: the requirements mandatory for conformance. The suite sends
 scripted messages and expects scripted answers no card agent would give, and sends no credentials,
 so this agent runs under the `tck` profile, with auth off and the library's own conformance
 executor in place of the card's. The suite therefore proves the transport; the integration tests
-and `validate.sh` prove the card work.
+and `tools/validate.sh` prove the card work.
 
 Result across runs, a2a-tck commit `263b9cf`, `--transport jsonrpc --level must`:
 
@@ -105,6 +105,7 @@ the one recorded here.
 
 ## CI
 
-`.github/workflows/ci.yml` runs on every push and pull request: the unit and integration tests, the
-operator scripts' checks, then `validate.sh`. CI calls the same scripts developers run, so the two
-cannot drift. The conformance suite runs locally through `validate.sh --tck`.
+`.github/workflows/ci.yml` runs on every push and pull request: `test.sh all`, which checks the
+operator scripts and runs the unit and integration tests, then `tools/validate.sh`. CI calls the
+same scripts developers run, so the two cannot drift. The conformance suite runs locally through
+`tools/validate.sh --tck`.

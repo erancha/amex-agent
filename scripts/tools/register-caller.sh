@@ -2,7 +2,7 @@
 #
 # Register an A2A caller, or replace its entry: the secret it will present in X-Caller-Secret,
 # minted here and printed once, and the Google OAuth client whose ID tokens it forwards. Writes
-# allowed-callers.yaml beside .env (mode 600) in the shape application.yml imports:
+# allowed-callers.yaml at the repo root (mode 600) in the shape application.yml imports:
 #
 #   app:
 #     a2a:
@@ -11,23 +11,24 @@
 #           shared_secret: <secret>
 #           client_id: <Google OAuth client id>
 #
-#   ./scripts/register-caller.sh --name <caller> --client-id <client id>   # mints the secret
-#   ./scripts/register-caller.sh ... --secret <secret>   # registers a given secret (tests)
-#   ./scripts/register-caller.sh ... --file <path>       # another file (APP_A2A_CALLERS_FILE)
+#   ./scripts/tools/register-caller.sh --name <caller> --client-id <client id>   # mints the secret
+#   ./scripts/tools/register-caller.sh ... --secret <secret>   # registers a given secret (tests)
+#   ./scripts/tools/register-caller.sh ... --file <path>       # another file (APP_A2A_CALLERS_FILE)
 #
-# The secret is shown once and never again, printed with this agent's name and URLs: the four
-# values the caller's operator records. start.sh repeats the public three once the agent is up. A
-# caller with that name is replaced; other callers are kept. Removing an entry revokes the caller;
-# the agent reads the file at startup, so restart a running one after a change.
+# The secret is shown once and never again, printed with this agent's name and its URLs on this
+# machine: the four values the caller's operator records. deploy.sh repeats the public three once
+# the agent is up, with the EC2 addresses under --ec2. A caller with that name is replaced; other
+# callers are kept. Removing an entry revokes the caller. The same file serves both targets; the
+# agent reads it at startup, so run ./scripts/deploy.sh [--ec2] again after a change.
 set -euo pipefail
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=common.sh
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=../common.sh
 source "$SCRIPT_DIR/common.sh"
-# .env is optional here: it only supplies the URLs the hand-over names, which otherwise default to
-# the agent's own.
-[ -f "$ROOT_DIR/.env" ] && load_env
+# Only the committed settings: the hand-over names the agent's URLs, and the file's location.
+# shellcheck source=../lib/stack-params.sh
+source "$STACK_PARAMS_FILE"
 
-NAME="" SECRET="" CLIENT_ID="" FILE="$DEFAULT_CALLERS_FILE"
+NAME="" SECRET="" CLIENT_ID="" FILE="$(callers_file)"
 while [ $# -gt 0 ]; do
   case "$1" in
     --name)      NAME="${2:?--name needs a value}"; shift ;;
@@ -35,7 +36,8 @@ while [ $# -gt 0 ]; do
     --client-id) CLIENT_ID="${2:?--client-id needs a value}"; shift ;;
     --file)      FILE="${2:?--file needs a path}"; shift ;;
     -h|--help)   print_help; exit 0 ;;
-    *) echo "Usage: ./scripts/register-caller.sh --name N --client-id C [--secret S] [--file F]" >&2
+    *) echo "Usage: ./scripts/tools/register-caller.sh --name N --client-id C [--secret S]" \
+         "[--file F]" >&2
        exit 2 ;;
   esac
   shift
@@ -54,7 +56,6 @@ for value in "$NAME" "$SECRET" "$CLIENT_ID"; do
     || { echo "Values may contain only letters, digits, '_', '.' and '-': '$value'." >&2; exit 2; }
 done
 
-clear_callers_dir "$FILE"
 umask 077
 python3 - "$FILE" "$NAME" "$SECRET" "$CLIENT_ID" <<'PY'
 import os, re, sys
@@ -97,12 +98,13 @@ with open(tmp, "w", encoding="utf-8") as out:
 os.chmod(tmp, 0o600)
 os.replace(tmp, path)
 PY
+PAGE_URL="http://localhost:$EDGE_HOST_PORT"
 if [ "$MINTED" -eq 1 ]; then
   echo "Registered $NAME in $FILE."
-  print_handover "$NAME's operator" "$SECRET"
+  print_handover "$NAME's operator" "$SECRET" "$PAGE_URL"
   echo "The secret is shown once and never again."
 else
   echo "Registered $NAME in $FILE with the given secret."
-  print_handover "$NAME's operator" "the one given"
+  print_handover "$NAME's operator" "the one given" "$PAGE_URL"
 fi
-echo "An agent already running reads the file at its next start."
+echo "A running agent reads the file at its next start: ./scripts/deploy.sh [--ec2]."

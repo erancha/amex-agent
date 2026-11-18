@@ -11,16 +11,17 @@
 # provider's HTTP client is built at startup, so a runtime library missing from the jar fails here
 # rather than on the first real deployment.
 #
-#   ./scripts/validate.sh          # the client-side checks above
-#   ./scripts/validate.sh --tck    # additionally run the official A2A TCK (MUST level, JSON-RPC)
+#   ./scripts/tools/validate.sh          # the client-side checks above
+#   ./scripts/tools/validate.sh --tck    # additionally run the official A2A TCK (MUST level)
 #
 # --tck clones or updates github.com/a2aproject/a2a-tck under .tck/, starts a second agent under
 # the "tck" and "e2e" Spring profiles (TCK scenario executor, auth off, keyword table) and fails on
 # any MUST failure.
-# Needs Java 21, Python 3.11+, openssl and network access for the first run.
+# It reads none of the settings files and needs no Docker. Needs Java 21, Python 3.11+, openssl
+# and network access for the first run.
 set -euo pipefail
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=common.sh
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=../common.sh
 source "$SCRIPT_DIR/common.sh"
 
 TCK=0
@@ -28,7 +29,7 @@ for arg in "$@"; do
   case "$arg" in
     --tck)     TCK=1 ;;
     -h|--help) print_help; exit 0 ;;
-    *) echo "Usage: ./scripts/validate.sh [--tck]" >&2; exit 2 ;;
+    *) echo "Usage: ./scripts/tools/validate.sh [--tck]" >&2; exit 2 ;;
   esac
 done
 
@@ -36,23 +37,23 @@ ensure_java21
 VENV="$(ensure_validate_venv)"
 PORT=8021
 BASE="http://localhost:$PORT"
-JAR="$ROOT_DIR/target/amex-agent.jar"
+JAR="$ROOT/target/amex-agent.jar"
 
-(cd "$ROOT_DIR" && mvn -q -B -DskipTests package)
+(cd "$ROOT" && mvn -q -B -DskipTests package)
 
 # A key pair of this run's own stands in for Google: the agent verifies against the public half,
 # check_agent.py signs with the private one. The person is user 1000, whose folder holds the test
 # statement; the caller is registered the way an operator registers a real one.
-AUTH_DIR="$ROOT_DIR/target/validate-auth"
+AUTH_DIR="$ROOT/target/validate-auth"
 rm -rf "$AUTH_DIR" && mkdir -p "$AUTH_DIR/statements/1000"
 openssl genpkey -quiet -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out "$AUTH_DIR/private.pem"
 openssl pkey -in "$AUTH_DIR/private.pem" -pubout -out "$AUTH_DIR/public.pem"
-cp "$ROOT_DIR/src/test/resources/statements/2026-10.pdf" "$AUTH_DIR/statements/1000/"
+cp "$ROOT/src/test/resources/statements/2026-10.pdf" "$AUTH_DIR/statements/1000/"
 ISSUER=validate
 PAGE_CLIENT_ID=validate-page
 CALLER_CLIENT_ID=validate-caller
 CALLER_SECRET="validate-$(date +%s)"
-"$SCRIPT_DIR/register-caller.sh" --name validate --secret "$CALLER_SECRET" \
+"$TOOLS/register-caller.sh" --name validate --secret "$CALLER_SECRET" \
   --client-id "$CALLER_CLIENT_ID" --file "$AUTH_DIR/allowed-callers.yaml" >/dev/null
 export APP_AUTH_CLIENT_ID="$PAGE_CLIENT_ID" APP_AUTH_ISSUER="$ISSUER" \
   APP_AUTH_PUBLIC_KEY_FILE="$AUTH_DIR/public.pem" \
@@ -65,7 +66,7 @@ trap cleanup INT TERM EXIT
 # A health answer before launch means another agent (often an orphan of an interrupted run)
 # owns the port; checking against it would prove nothing about this build.
 run_agent() {  # port profiles [provider, unread under the e2e profile]
-  local url="http://localhost:$1" log="$ROOT_DIR/target/validate-$1.log" provider="${3:-}"
+  local url="http://localhost:$1" log="$ROOT/target/validate-$1.log" provider="${3:-}"
   if is_healthy "$url"; then
     echo "port $1 already serves an agent; stop it first (lsof -ti tcp:$1 | xargs kill)" >&2
     exit 1
@@ -82,7 +83,7 @@ run_agent() {  # port profiles [provider, unread under the e2e profile]
 
 run_agent "$PORT" e2e
 echo "==> client-side checks against $BASE"
-"$VENV/bin/python" "$SCRIPT_DIR/validate/check_agent.py" "$BASE" \
+"$VENV/bin/python" "$TOOLS/validate/check_agent.py" "$BASE" \
   --private-key "$AUTH_DIR/private.pem" --issuer "$ISSUER" --caller-secret "$CALLER_SECRET" \
   --caller-client-id "$CALLER_CLIENT_ID" --page-client-id "$PAGE_CLIENT_ID" \
   --covered 2026-10 --count 24 --uncovered 2026-09
@@ -96,7 +97,7 @@ for provider in anthropic openai; do
 done
 
 if [ "$TCK" -eq 1 ]; then
-  TCK_DIR="$ROOT_DIR/.tck"
+  TCK_DIR="$ROOT/.tck"
   if [ -d "$TCK_DIR/.git" ]; then (cd "$TCK_DIR" && git pull -q --ff-only)
   else git clone -q https://github.com/a2aproject/a2a-tck.git "$TCK_DIR"; fi
   [ -x "$TCK_DIR/.venv/bin/python" ] || python3 -m venv "$TCK_DIR/.venv"

@@ -1,3 +1,12 @@
+# amex-agent's services: Redis, the agent replicas and the nginx edge in front of them.
+# The scripts call compose from this directory, so relative paths resolve from the repo root.
+# Settings come from the files under scripts/lib/ (stack-params.sh, params.sh, secrets.sh), which
+# the scripts export into their shell before calling compose, so the ${...} values below
+# interpolate; a bare docker compose call has none of them. The edge, the only published service,
+# binds to this machine's loopback interface, since Docker otherwise publishes on every host
+# interface and exposes the port to the whole network.
+name: amex-agent
+
 services:
   # Holds the A2A tasks for every replica (APP_TASKS_REDIS_URL), so whichever replica receives a
   # continue finds the task another replica paused. Redis also writes the tasks to an append-only
@@ -15,43 +24,58 @@ services:
       timeout: 3s
       retries: 15
 
-  # The card agent, reading statements from the folder named in .env (APP_STATEMENTS_DIR), one
+  # The card agent, reading statements from the folder APP_STATEMENTS_DIR of stack-params.sh, one
   # sub-folder per person. The statements page writes uploads into that folder, so the mount is
-  # writable and the process runs as the host user who owns it (scripts/common.sh exports HOST_UID
-  # and HOST_GID). The registered callers come from the file register-caller.sh writes, mounted
-  # read-only; it must exist before the first start.
+  # writable and the process runs as the host user who owns it (the compose function of
+  # scripts/common.sh exports HOST_UID and HOST_GID). The registered callers arrive as the
+  # allowed-callers secret, read-only.
   amex-agent:
     build: .
     image: amex-agent:local
-    user: "${HOST_UID:?run through scripts/start.sh}:${HOST_GID:?run through scripts/start.sh}"
+    user: "${HOST_UID:?set by scripts/common.sh}:${HOST_GID:?set by scripts/common.sh}"
     # The edge spreads requests over the replicas, and whichever replica receives a continue picks
     # up the paused task. Redeploy only while no task is working: stopping a replica mid-task ends
     # that task's stream, and the caller's fetch fails.
     # To try a different number of replicas, scale the running stack: in a shell, source
-    # scripts/common.sh and run load_env (compose needs the variables it exports), then run
-    # compose up -d --scale amex-agent=N --wait. The next start.sh goes back to the count set here.
+    # scripts/common.sh, then run compose up -d --scale amex-agent=N --wait. The next deploy.sh
+    # goes back to the count set here.
     deploy:
       replicas: 2
       resources:
         limits:
           memory: 768M
-    env_file:
-      - path: ./.env
-        required: true
-    # The container always listens on 8020; SERVER_PORT from .env only chooses the host port the
-    # edge publishes.
+    # Each key listed without a value takes its value from the scripts' shell and stays unset
+    # when its settings file leaves it commented out, so the agent keeps its default.
     environment:
+      # The container always listens on 8020; EDGE_HOST_PORT only chooses the port the edge
+      # publishes.
       SERVER_PORT: 8020
+      APP_AGENT_URL:
       APP_STATEMENTS_DIR: /statements
-      APP_A2A_CALLERS_FILE: /allowed-callers.yaml
+      APP_A2A_AUTH_REQUIRED:
+      APP_A2A_CALLERS_FILE: /run/secrets/allowed-callers.yaml
+      APP_AUTH_CLIENT_ID:
+      APP_AUTH_ISSUER:
+      APP_AUTH_JWKS_URL:
+      APP_LLM_MODEL:
+      APP_LLM_API_KEY:
+      APP_CATEGORIZER_HIGH_CONFIDENCE:
+      APP_CATEGORIZER_MEDIUM_CONFIDENCE:
+      APP_CATEGORIZER_BATCH_SIZE:
       # The replicas share their tasks through Redis. To keep tasks in the process's memory
       # instead, blank this value and also set replicas to 1 above: with several replicas, a
       # continue reaching a replica other than the one that paused the task would find no task.
-      # start.sh --host already runs this way, as one process with its tasks in memory.
+      # An agent started on the host runs this way, as one process with its tasks in memory.
       APP_TASKS_REDIS_URL: redis://redis:6379/0
+      APP_TASKS_TTL:
+      APP_TASKS_LEASE:
+      LOG_LEVEL:
+      A2A_LOG_LEVEL:
     volumes:
-      - ${APP_STATEMENTS_DIR:?set APP_STATEMENTS_DIR in .env}:/statements
-      - ${APP_A2A_CALLERS_FILE:-./allowed-callers.yaml}:/allowed-callers.yaml:ro
+      - ${APP_STATEMENTS_DIR:?set in stack-params.sh}:/statements
+    secrets:
+      - source: allowed-callers
+        target: allowed-callers.yaml
     healthcheck:
       test: ["CMD-SHELL", "curl -fs http://localhost:8020/actuator/health || exit 1"]
       interval: 5s
@@ -61,14 +85,14 @@ services:
       redis:
         condition: service_healthy
 
-  # The only service that publishes the agent's port; nginx/default.conf proxies to the replicas.
+  # The only service that publishes the agent's port; nginx/default.conf, built into the image,
+  # proxies to the replicas.
   edge:
-    image: nginx:1.28-alpine
-    volumes:
-      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    build: nginx
+    image: amex-edge:local
     deploy: { resources: { limits: { memory: 64M } } }
     ports:
-      - "${SERVER_PORT:-8020}:8020"
+      - "127.0.0.1:${EDGE_HOST_PORT:?set in stack-params.sh}:8020"
     healthcheck:
       test: ["CMD", "wget", "-qO", "/dev/null", "http://localhost:8020/actuator/health"]
       interval: 3s
@@ -80,3 +104,10 @@ services:
 
 volumes:
   amex_redis:
+
+# The registry tools/register-caller.sh writes, which the compose function of scripts/common.sh
+# reads into APP_A2A_CALLERS_YAML. Compose writes it into each replica through the Docker API, so
+# no file of this machine is mounted.
+secrets:
+  allowed-callers:
+    environment: APP_A2A_CALLERS_YAML

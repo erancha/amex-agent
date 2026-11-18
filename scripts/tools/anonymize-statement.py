@@ -12,7 +12,7 @@ private values, so it stays outside the repo. The run fails when a key is never 
 stand-in needs a glyph the embedded font subset lacks, or when any key still appears in the
 written file.
 
-Usage: scripts/anonymize-statement.py <in.pdf> <out.pdf> <replacements.json>
+Usage: scripts/tools/anonymize-statement.py <in.pdf> <out.pdf> <replacements.json>
 Requires pypdf.
 """
 import json

@@ -16,9 +16,9 @@ logging:
     org.apache.fontbox.ttf.PostScriptTable: ERROR
 
 spring:
-  # The registered A2A callers live in a file of their own beside .env, since it holds secrets:
+  # The registered A2A callers live in a file of their own, since it holds secrets:
   # app.a2a.allowed_callers, one entry per caller. Missing, it leaves no caller registered, which
-  # fails startup while authentication is required.
+  # fails startup while authentication is required. Compose mounts it as a secret.
   config:
     import: optional:file:${APP_A2A_CALLERS_FILE:./allowed-callers.yaml}
   # The statements page uploads one statement PDF at a time; a real one is about 0.5 MB.

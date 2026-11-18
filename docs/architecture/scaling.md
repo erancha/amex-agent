@@ -2,7 +2,8 @@
 
 The Docker stack runs the agent as several replicas behind an nginx edge, all on one Redis and one
 statements folder, so a caller sees one agent whichever replica serves it. This page states what
-the replicas must guarantee.
+the replicas must guarantee, detailing the [Scaling](../architecture.md#scaling) section of the
+architecture.
 
 ## Scaling safety
 
@@ -16,9 +17,8 @@ What a request needs therefore crosses processes: a `SendStreamingMessage` call 
 response of the replica that received it; the person is a token verified on every request; every
 replica mounts the same statements folder; and a paused task is kept in Redis, which writes it to
 disk every second, so whichever replica receives the `continue` loads it, with the month and person
-recorded when it paused. Without Redis, as in `start.sh --host` and the unit tests, tasks stay in
-the process's memory. What is still open under this term is tracked in this repo's GitHub issues:
-the `scalability` label with the `scaling-safety` label.
+recorded when it paused. Without Redis, as in an agent started on the host and the unit tests,
+tasks stay in the process's memory.
 
 ### The task lease
 
@@ -54,13 +54,12 @@ takes to fetch and categorize, stays what it is from a single replica. One thing
 the shared statements folder and task store: a merchant one replica has categorized
 ([categorizer.md](categorizer.md)) must cost no other replica, and no later restart, a model call,
 so that a month fetched through any replica is categorized as fast as through the one that saw its
-merchants first. What is still open under this term is tracked in this repo's GitHub issues: the
-`scalability` label with the `scaling-out` label.
+merchants first.
 
 ## The edge service
 
-An nginx service, `edge`, is the only one that publishes port 8020, and it spreads calls over the
-replicas. It looks up the replicas' addresses again every 5 seconds, so a replica added by scaling
-or recreated by a redeploy starts receiving calls without an edge restart. Its access log names the
-replica that served each call (`docker-helper.sh --logs edge`). `start.sh --host` has no edge: the
-one JVM serves the port itself.
+An nginx service, `edge`, is the only one that publishes a port (`EDGE_HOST_PORT`, 8020), and it
+spreads calls over the replicas. It looks up the replicas' addresses again every 5 seconds, so a
+replica added by scaling or recreated by a redeploy starts receiving calls without an edge
+restart. Its access log names the replica that served each call (`docker-helper.sh --logs edge`).
+An agent started on the host has no edge: the one JVM serves the port itself.

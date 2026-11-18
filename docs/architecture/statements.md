@@ -2,6 +2,7 @@
 
 Where a person's statements live, how the card site's PDF is read, and the page that loads them.
 The agent reads only statements a person loaded themselves; it never logs in to the card site.
+This page details the [Statements](../architecture.md#statements) section of the architecture.
 
 ## One folder per person
 
@@ -34,9 +35,9 @@ same way. The statement prints no voucher numbers, so a row's id is the charge d
 position, `20261002-01`: stable for one file and unique across months.
 
 The test statement, `src/test/resources/statements/2026-10.pdf` (24 rows), is a real statement with
-the holder's private details replaced by `scripts/anonymize-statement.py`. The script redraws each
-replaced word at the original width, so text extraction sees the same columns as in the real file;
-the mapping of private words to stand-ins never enters the repo.
+the holder's private details replaced by `scripts/tools/anonymize-statement.py`. The script
+redraws each replaced word at the original width, so text extraction sees the same columns as in
+the real file; the mapping of private words to stand-ins never enters the repo.
 
 ## The statements page
 

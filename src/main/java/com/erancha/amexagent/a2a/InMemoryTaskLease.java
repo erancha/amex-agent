@@ -8,9 +8,9 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * Task leases for a single process, as in start.sh --host and the unit tests. A lease still lapses
- * after its time to live, so a continue the SDK refused before running it does not hold its task
- * for good.
+ * Task leases for a single process, as in an agent started on the host and the unit tests. A
+ * lease still lapses after its time to live, so a continue the SDK refused before running it does
+ * not hold its task for good.
  */
 public final class InMemoryTaskLease implements TaskLease {
   private record Held(String owner, Instant expires) {}

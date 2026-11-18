@@ -1,7 +1,12 @@
 # Request flow
 
 What happens inside one replica between a caller's request for a month and the last row it
-receives, and why the agent is built that way.
+receives, and why the agent is built that way. This page details the
+[Request flow](../architecture.md#request-flow) section of the architecture.
+
+**Contents:** [Who is calling](#who-is-calling) ·
+[Why a hand-written Spring transport](#why-a-hand-written-spring-transport) ·
+[Threads](#threads) · [Library behavior](#library-behavior)
 
 ```mermaid
 sequenceDiagram
@@ -14,7 +19,7 @@ sequenceDiagram
   participant L as LLM (Language Model)
   participant Q as Task's event queue
 
-  C->>E: SendStreamingMessage {"month": "2026-10"}<br/>Authorization: Bearer ID token, X-Caller-Secret
+  C->>E: SendStreamingMessage {"month": "2026-10"}<br/>bearer ID token, X-Caller-Secret
   Note over E: caller secret checked
   E->>H: start task
   H-)X: execute, on an agent thread
@@ -43,9 +48,9 @@ knows them from two credentials, checked in two places:
 
 - **The caller**, by the shared secret in `X-Caller-Secret`. A filter in front of the transport
   compares it in constant time against every registered caller and answers 401 when none matches.
-  Callers are entries in `allowed-callers.yaml`, which `register-caller.sh` writes: a name, the
-  secret, and the Google OAuth client id of the caller's own sign-in. Removing an entry revokes the
-  caller.
+  Callers are entries in `allowed-callers.yaml`, which `tools/register-caller.sh` writes: a name,
+  the secret, and the Google OAuth client id of the caller's own sign-in. Removing an entry revokes
+  the caller.
 - **The person**, by the Google ID token in `Authorization`, which the caller forwards as the
   person's browser received it. The agent checks the signature against Google's published keys,
   the issuer, the expiry and the audience, which must equal the admitted caller's registered client
