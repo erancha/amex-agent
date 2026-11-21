@@ -65,13 +65,16 @@ trap cleanup INT TERM EXIT
 
 # A health answer before launch means another agent (often an orphan of an interrupted run)
 # owns the port; checking against it would prove nothing about this build.
+# A model ModelCosts lists, since the agent refuses an unlisted one at boot.
+declare -A LISTED_MODEL=([anthropic]=claude-haiku-5-5 [openai]=gpt-5-mini)
+
 run_agent() {  # port profiles [provider, unread under the e2e profile]
   local url="http://localhost:$1" log="$ROOT/target/validate-$1.log" provider="${3:-}"
   if is_healthy "$url"; then
     echo "port $1 already serves an agent; stop it first (lsof -ti tcp:$1 | xargs kill)" >&2
     exit 1
   fi
-  SERVER_PORT="$1" APP_AGENT_URL="$url" APP_LLM_MODEL="${provider:+$provider:placeholder}" \
+  SERVER_PORT="$1" APP_AGENT_URL="$url" APP_LLM_MODEL="${provider:+$provider:${LISTED_MODEL[$provider]}}" \
   APP_LLM_API_KEY=placeholder \
   APP_STATEMENTS_DIR="$AUTH_DIR/statements" SPRING_PROFILES_ACTIVE="$2" \
   LOG_LEVEL=WARN java -jar "$JAR" >"$log" 2>&1 &

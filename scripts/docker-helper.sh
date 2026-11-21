@@ -12,6 +12,12 @@
 #       amex-agent, edge) after the options to show only their logs.
 #   ./scripts/docker-helper.sh --ps
 #       Show the containers' status.
+#   ./scripts/docker-helper.sh --costs [--since <age>]
+#       The model calls of the stack's logs by UTC day and by kind of call: calls, tokens in and
+#       out, dollars at the prices in ModelCosts.java, which a provider price change does not reach
+#       until the table is updated and deployed. <age> is 30m, 6h or 2d (default 1h). The logs
+#       are those of the containers now running: a container a deploy recreated starts its log
+#       anew.
 #   ./scripts/docker-helper.sh --ec2 --delete-stack
 #       Delete the EC2 stack of the git branch: its port on the instance and its
 #       CloudFront distribution, after asking to type the stack's name. The containers and
@@ -38,6 +44,16 @@ do_logs() {
   esac
 }
 
+# Docker reads --since as a duration in hours, minutes or seconds; a count of days becomes hours,
+# so --costs --since 2d reads as it does in the AWS repos.
+do_costs() {
+  local since="${2:-1h}"
+  if [[ "$since" =~ ^([0-9]+)d$ ]]; then since="$((BASH_REMATCH[1] * 24))h"; fi
+  compose logs --no-color --no-log-prefix --timestamps --since "$since" |
+    python3 "$SCRIPT_DIR/lib/docker_helper.py"
+  echo "The dollars use the prices in PRICE_PER_MILLION of ModelCosts.java, as last deployed." >&2
+}
+
 TARGET=local
 if [ "${1:-}" = --ec2 ]; then TARGET=ec2; shift; fi
 mode="${1:-}"
@@ -54,7 +70,13 @@ case "$mode" in
   --ps|--delete-stack)
     [ $# -eq 0 ] || { echo "$mode takes no arguments (got: $*)" >&2; exit 1; } ;;
   --logs) ;;
-  *) echo "Unknown command: $mode (expected --stop | --logs | --ps | --delete-stack; see -h)" >&2
+  --costs)
+    case "$#:${1:-}" in
+      0: | 2:--since) ;;
+      *) echo "--costs takes only --since <age>: $*" >&2; exit 2 ;;
+    esac ;;
+  *) echo "Unknown command: $mode (expected --stop | --logs | --ps | --costs | --delete-stack;" \
+       "see -h)" >&2
      exit 1 ;;
 esac
 [ "$mode" != --delete-stack ] || [ "$TARGET" = ec2 ] \
@@ -71,4 +93,5 @@ case "$mode" in
   --stop) do_stop "$@" ;;
   --logs) do_logs "$@" ;;
   --ps)   compose ps ;;
+  --costs) do_costs "$@" ;;
 esac

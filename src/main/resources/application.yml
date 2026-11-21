@@ -11,6 +11,8 @@ logging:
   level:
     com.erancha: ${LOG_LEVEL:INFO}
     org.a2aproject.sdk: ${A2A_LOG_LEVEL:WARN}
+    # Each model call's line, which docker-helper.sh --costs sums, whatever LOG_LEVEL is.
+    model_call: INFO
     # The card site's statement fonts lack a PostScript name, which only matters for rendering;
     # PDFBox warns about it on every parse.
     org.apache.fontbox.ttf.PostScriptTable: ERROR

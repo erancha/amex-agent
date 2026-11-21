@@ -26,7 +26,7 @@ public class LlmConfiguration {
   public MerchantClassifier merchantClassifier(LlmProperties llm,
       ObjectProvider<ChatClient.Builder> chatClientBuilder, Environment env) {
     requireApiKey(env.getRequiredProperty(API_KEY_PROPERTY), llm.provider());
-    return new SpringAiMerchantClassifier(chatClientBuilder.getObject().build());
+    return new SpringAiMerchantClassifier(chatClientBuilder.getObject().build(), llm.model());
   }
 
   @Bean

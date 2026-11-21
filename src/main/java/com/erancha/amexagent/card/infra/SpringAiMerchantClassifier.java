@@ -8,6 +8,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.stream.Collectors;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.model.Generation;
 import org.springframework.ai.converter.BeanOutputConverter;
 import org.springframework.core.ParameterizedTypeReference;
@@ -19,7 +20,8 @@ import org.springframework.core.ParameterizedTypeReference;
  * that reasons first has its reasoning reported by Spring AI as a generation ahead of the answer,
  * so the answer is read from the last generation. A reply without answer text (the reasoning can
  * use up the output limit before the JSON starts) fails naming the finish reason and the limit's
- * property.
+ * property. Each answered call is logged as a "categorize" model call, a reply without answer
+ * text included, since the provider bills it.
  */
 public class SpringAiMerchantClassifier implements MerchantClassifier {
   private static final String SYSTEM = """
@@ -48,12 +50,20 @@ public class SpringAiMerchantClassifier implements MerchantClassifier {
       guess. Answer only with the JSON array, one element per input, in input order."""
       .formatted(categoryGuide());
 
+  private static final String KIND = "categorize";
+
   private final ChatClient chat;
+  private final String model;
+  private final String provider;
   private final BeanOutputConverter<List<MerchantCategory>> converter =
       new BeanOutputConverter<>(new ParameterizedTypeReference<>() {});
 
-  public SpringAiMerchantClassifier(ChatClient chat) {
+  /** model: the APP_LLM_MODEL provider:model the client calls, one ModelCosts lists. */
+  public SpringAiMerchantClassifier(ChatClient chat, String model) {
+    ModelCosts.requirePrice(model);
     this.chat = chat;
+    this.model = model;
+    this.provider = model.substring(0, model.indexOf(':'));
   }
 
   private static String categoryGuide() {
@@ -66,12 +76,15 @@ public class SpringAiMerchantClassifier implements MerchantClassifier {
   public List<MerchantCategory> classify(List<MerchantQuery> merchants) {
     String lines = merchants.stream().map(SpringAiMerchantClassifier::inputLine)
         .collect(Collectors.joining("\n"));
-    List<Generation> generations = chat.prompt()
+    long started = System.nanoTime();
+    ChatResponse response = chat.prompt()
         .system(SYSTEM)
         .user("Merchants:\n" + lines + "\n" + converter.getFormat())
         .call()
-        .chatResponse()
-        .getResults();
+        .chatResponse();
+    ModelCosts.log(KIND, model, ModelCosts.billed(provider, response.getMetadata().getUsage()),
+        (System.nanoTime() - started) / 1e9);
+    List<Generation> generations = response.getResults();
     Generation answer = generations.get(generations.size() - 1);
     String text = answer.getOutput().getText();
     if (text == null || text.isBlank()) {

@@ -51,10 +51,12 @@ class LlmConfigurationTest {
 
   @Test
   void boot_realProviderWithKey_selectsItsChatModel() {
-    try (var context = boot("--APP_LLM_MODEL=anthropic:m", "--APP_LLM_API_KEY=k")) {
+    try (var context =
+        boot("--APP_LLM_MODEL=anthropic:claude-haiku-5-5", "--APP_LLM_API_KEY=k")) {
       var env = context.getEnvironment();
       assertThat(env.getProperty("spring.ai.model.chat")).isEqualTo("anthropic");
-      assertThat(env.getProperty("spring.ai.anthropic.chat.options.model")).isEqualTo("m");
+      assertThat(env.getProperty("spring.ai.anthropic.chat.options.model"))
+          .isEqualTo("claude-haiku-5-5");
       assertThat(env.getProperty("spring.ai.anthropic.api-key")).isEqualTo("k");
       assertThat(context.getBean(MerchantClassifier.class))
           .isInstanceOf(SpringAiMerchantClassifier.class);
