@@ -1,17 +1,16 @@
 # Architecture
 
-This document details how amex-agent is built, behind the [README](../README.md)'s Architecture
-section. Each section below ends in a page that holds its details. What goes on the wire is in
-[a2a-contract.md](a2a-contract.md); how each part is tested is in [testing.md](testing.md); how
-to run it is in [development.md](development.md); why each founding choice was made is in the
-[decision records](adr/).
+This document details the architecture the [README](../README.md) summarizes. Each section
+summarizes its subject and links the topic document holding the detail; each founding decision has a
+record under [adr/](adr/). What goes on the wire is in [A2A contract](a2a-contract.md), how to run
+the stack in [Development & deployment](development.md), and how each part is tested in
+[Testing](testing.md).
 
 **Contents:** [The parts](#the-parts) · [Boundaries](#boundaries) · [Request flow](#request-flow) ·
 [Statements](#statements) · [Categorizer](#categorizer) · [Scaling](#scaling) ·
-[Configuration](#configuration) · [Deployment](#deployment) · [Storage](#storage) ·
+[Configuration](#configuration) · [The edge](#the-edge) ·
+[Host or guest on EC2](#host-or-guest-on-ec2) · [Storage](#storage) ·
 [Codebase structure](#codebase-structure)
-
-## The parts
 
 ```mermaid
 flowchart LR
@@ -48,38 +47,24 @@ flowchart LR
   style R fill:#dcfce7,stroke:#15803d
 ```
 
-A request walks the diagram left to right:
+## The parts
 
-- **A2A client**, the caller, reads amex-agent's Agent Card, checks it offers the skill, and asks
-  for a billing month, for example `{"month": "2026-10"}`, sending its registered secret and the
-  signed-in person's Google ID token, so amex-agent knows which caller asks and for whom.
-- **nginx edge** spreads requests over the replicas; everything listed below runs inside the
-  replica that got the request.
-- **Caller filter** admits the call only when it carries a secret the agent issued to a registered
-  caller.
-- **Spring MVC transport**, hand-written and thin, reads the JSON-RPC call and streams the response
-  back as SSE.
-- **a2a-java request handler**, the official server library, turns the call into a task, kept in
-  **Redis** so a task paused by one replica can be continued by any, and runs the executor for it.
-- **Executor** is this repo's card work: verify the person's token against **Google public keys**,
-  have the **PDF parser** read that month's statement from the person's own folder in the
-  **statements root**, and have the **Merchant categorizer** label the merchants, asking the
-  **LLM** (Anthropic's or OpenAI's) only about merchants this replica has not seen. The charges
-  stream back along the same path in batches, each with a category such as `groceries` or
-  `insurance`. When the statement is not loaded yet, the executor leaves the task open and asks for
-  it; once the person has loaded the file, the caller says "continue" and the same task finishes.
-  A token that has expired pauses the task the same way until the person signs in again.
+Each part is a service of `docker-compose.yml`. Every route is in [API endpoints](api.md), the work
+no request waits on in [Workers' responsibilities and flows](workers.md).
 
-The LLM only chooses categories; every amount and date is read from the PDF. A month comes back
-whole or not at all: the parser checks its rows against the totals the statement prints and fails
-the request on any difference.
+- `redis` — Redis 7 with the `amex_redis` volume, holding the A2A tasks the replicas share.
+- `amex-agent` — two replicas of the Spring Boot agent, built from the root `Dockerfile`: the A2A
+  endpoint, the Agent Card, the statements page and its API. Each mounts the statements root and
+  receives the callers registry as a Compose secret, and starts once `redis` is healthy.
+- `edge` — nginx, built from `nginx/`: the only service that publishes a port, spreading calls
+  over the replicas; it starts once they are healthy.
 
 ## Boundaries
 
 - **The contract is shared, not per agent.** Every card agent should offer the same A2A skill,
   `monthly-transactions`: a billing month in, rows out in one format (ISO dates, amounts in
   shekels, one category from a closed list), or a request for the missing statement. The caller
-  owns that contract; [a2a-contract.md](a2a-contract.md) describes how amex-agent implements it.
+  owns that contract; [A2A contract](a2a-contract.md) describes how amex-agent implements it.
 - **Each card agent normalizes and categorizes its own card, so a caller needs nothing
   card-specific.** Everything Amex-specific stops here: the PDF layout, Hebrew labels,
   installments, purchases abroad. Rows leave amex-agent in the shared format, each in a category
@@ -89,89 +74,77 @@ the request on any difference.
 
 ## Request flow
 
-[architecture/request-flow.md](architecture/request-flow.md) is what runs inside a replica: how
-the two credentials are checked, why the transport is hand-written, and the threading a
-long-lived stream needs. The transport is hand-written because the Spring integration of a2a-java
-refuses streaming requests
-([ADR 0001](adr/0001-spring-boot-with-a-hand-written-a2a-transport.md)); a caller is known by
-a secret the agent issued and the person by the Google token the caller forwards
-([ADR 0004](adr/0004-registered-callers-forward-google-tokens.md)).
+A caller is known by a secret the agent issued it, and the person by the Google ID token the caller
+forwards ([ADR 0004](adr/0004-registered-callers-forward-google-tokens.md)). The transport is
+hand-written because the Spring integration of a2a-java refuses streaming requests
+([ADR 0001](adr/0001-spring-boot-with-a-hand-written-a2a-transport.md)).
+[Request flow](architecture/request-flow.md) walks a request through the stack and inside a replica.
 
 ## Statements
 
 One folder per person under the statements root, where a static page lets a person load and
 delete their own files. On every lookup the agent reads the folder's PDFs and maps each to the
 billing month it declares, so a file loaded while a task waits is found on `continue`. The parser
-checks every section against its printed total. Statements are files a person loads, never
-fetched from the card site ([ADR 0002](adr/0002-statements-are-pdfs-a-person-loads.md)).
-[architecture/statements.md](architecture/statements.md)
+checks every section against its printed total, so a month comes back whole or not at all. The
+person loads each statement; the agent never fetches one from the card site
+([ADR 0002](adr/0002-statements-are-pdfs-a-person-loads.md)).
+[Statements](architecture/statements.md) has the folder, the PDF and the page.
 
 ## Categorizer
 
-A language model categorizes each merchant once, in batches, guided by the sector label the
-statement prints, and its score becomes `high`, `medium` or `low` confidence. Amounts and dates
-never pass through the model, so a model error can mislabel a row but never change its sum
-([ADR 0003](adr/0003-a-model-chooses-categories-only.md)).
-[architecture/categorizer.md](architecture/categorizer.md)
+A language model only chooses categories, each merchant once, in batches, guided by the sector
+label the statement prints, and its score becomes `high`, `medium` or `low` confidence. Amounts and
+dates are read from the PDF and never pass through the model, so a model error can mislabel a row
+but never change its sum ([ADR 0003](adr/0003-a-model-chooses-categories-only.md)).
+[Categorizer](architecture/categorizer.md) has the merchant keys, the prompt and the providers.
 
 ## Scaling
 
-The Docker stack runs several replicas of the agent behind an nginx edge, sharing their A2A tasks
-through Redis, so a task paused for a missing statement can be continued through any replica. The
-concerns that follow are each a GitHub label beside `scalability`: **scaling safety**, that it is
-safe to run more than one replica without errors; and **scaling out**, that adding replicas serves
-more callers without degrading any caller's experience. Redis holds the tasks because a paused task
-must outlive the replica that paused it
+The replicas share their A2A tasks through Redis, so a task paused for a missing statement can be
+continued through any replica, and outlives the replica that paused it
 ([ADR 0005](adr/0005-replicas-share-tasks-through-redis.md)).
-[architecture/scaling.md](architecture/scaling.md)
+[Scaling](architecture/scaling.md) has what the replicas guarantee and the mechanisms behind it.
 
 ## Configuration
 
-Every runtime setting is an environment variable, kept in three files under `scripts/lib/`: the
-committed `stack-params.sh`, and the gitignored `params.sh` and `secrets.sh`. Secrets, the model
-and the statements folder have no default, and a wrong required setting stops startup naming
-it.
-[architecture/configuration.md](architecture/configuration.md)
+Every runtime setting is an environment variable, which the scripts export from three files under
+`scripts/lib/` before they call Compose: the committed `stack-params.sh`, and the gitignored
+`params.sh` and `secrets.sh`. Compose hands each replica only the keys the agent reads, and a wrong
+required setting stops startup naming it. The files, the keys, the startup checks and the test-only
+profiles are in [Development & deployment](development.md#configuration).
 
-## Deployment
+## The edge
 
-The stack runs under Docker Compose: Redis, two agent replicas and the nginx edge, the only
-service with a published port. `./scripts/deploy.sh` runs it on this machine, with the edge on the
-loopback interface at `EDGE_HOST_PORT` (8020) and the statements folder mounted into the replicas.
-`./scripts/deploy.sh --ec2` runs the same stack on an EC2 instance, behind a CloudFront distribution
-of its own ([ADR 0006](adr/0006-guest-on-loan-simulators-ec2-instance.md)): the stack hosts the
-instance, or joins another Docker Compose repo's as a guest
-([ADR 0007](adr/0007-any-docker-repo-can-host-the-instance.md)).
+The `edge` service is the one way in: on the workstation it publishes `EDGE_HOST_PORT` (8020) on
+the loopback interface, and on EC2 a CloudFront distribution of the stack's own in front of it
+gives the stack the address the card advertises there
+([ADR 0006](adr/0006-guest-on-loan-simulators-ec2-instance.md)). How it spreads calls is in
+[The edge service](architecture/scaling.md#the-edge-service); what the instance's Compose file
+changes and how images reach it in [The EC2 stack](development.md#the-ec2-stack).
 
-- **The guest stack.** `scripts/template-ec2.yaml`, shared by every Docker Compose repo, opens
-  the edge's port in the host's security group to CloudFront's servers alone and points the
-  distribution at the instance. TLS ends at CloudFront; the hop to the instance is plain HTTP.
-- **What differs on the instance** is in `docker-compose.ec2.yml`: images built for ARM, the edge
-  published on the instance's address, the `statements` volume in place of this machine's folder,
-  and services that start again with the instance.
-- **Nothing of the deployer's machine is mounted.** The images are built there and loaded into
-  the instance's Docker daemon over SSH, the edge's with `nginx/default.conf` built in, and
-  Compose runs there against that daemon. The callers registry reaches each replica as a Compose
-  secret, which Compose writes into the container through the Docker API, on both targets alike.
-- **Addresses.** The Agent Card advertises the CloudFront address, which is also the statements
-  page's. A caller on the same instance, such as home-finance-agent, fetches the card at
-  `http://host.docker.internal:8020` and then calls the advertised address.
+## Host or guest on EC2
+
+The instance serves the other Docker Compose repos too: one stack is its host, with the instance
+its own, and the others join it as guests, each with its own port and CloudFront distribution
+([ADR 0007](adr/0007-any-docker-repo-can-host-the-instance.md)). `EC2_HOST_STACK` of `params.sh`
+makes amex-agent's stack either ([The EC2 stack](development.md#the-ec2-stack)).
 
 ## Storage
 
-- **Statements**: `APP_STATEMENTS_DIR` of `scripts/lib/stack-params.sh` (`./statements`, its
-  content gitignored), one folder per person named by their Google account id, each file named
-  `<YYYY>-<MM>.pdf` after its billing month. Every replica mounts the same folder; on the EC2
-  instance the `statements` volume takes its place.
-- **Tasks**: Redis, one key `a2a:task:<taskId>` per task holding its wire JSON, expiring
-  `APP_TASKS_TTL` (30 days) after its last change, a set `a2a:tasks` of task ids for listing, and
-  one `a2a:lease:<taskId>` key per running call. Redis writes its data to disk every second.
-- **Callers**: `allowed-callers.yaml` (gitignored), handed to each replica as a Compose secret
-  and read at startup.
-- **Merchant categories**: each replica's memory, lost on restart.
+**Redis** holds the tasks and their leases; **the statements root** a folder of statement PDFs per
+person; **`allowed-callers.yaml`** the registered callers; and each replica's memory the merchant
+categories. Every key, folder and file, and what each holds, is in [Data model](data-model.md).
 
 ## Codebase structure
 
-Two halves: the packages that fit the a2a-java library into Spring and check who is calling, and
-the card pipeline that turns a statement into categorized rows.
-[architecture/codebase-structure.md](architecture/codebase-structure.md)
+Two halves: the packages that fit a2a-java into Spring and check who is calling, and the card
+pipeline in layers ([Design patterns](design-patterns.md#layers-whose-imports-point-inwards)).
+
+- `src/main/java/…/` — the agent, in the packages `a2a`, `auth`, `card/{api,application,infra}`,
+  `statements` and `tck`; `src/main/resources/` holds the settings, the test profiles' settings
+  and the statements page, `nginx/` the edge's image and configuration.
+- `src/test/` — the unit and integration tests and the anonymized test statement.
+- `scripts/` — the operational scripts and `common.sh`, which they share
+  ([Development & deployment](development.md#deployment-scripts-scripts)).
+- `docs/` — this document, the topic documents, `architecture/` for the subsystems, and `adr/`.
+- `.github/workflows/` — the CI workflow that runs `scripts/test.sh` and `tools/validate.sh`.

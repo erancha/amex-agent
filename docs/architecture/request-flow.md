@@ -1,12 +1,39 @@
 # Request flow
 
-What happens inside one replica between a caller's request for a month and the last row it
-receives, and why the agent is built that way. This page details the
-[Request flow](../architecture.md#request-flow) section of the architecture.
+This document details the [Request flow](../architecture.md#request-flow) that Architecture
+summarizes: the path a request takes through the stack, what happens inside one replica between a
+caller's request for a month and the last row it receives, and why the agent is built that way.
 
-**Contents:** [Who is calling](#who-is-calling) ·
+**Contents:** [The path of a request](#the-path-of-a-request) ·
+[Who is calling](#who-is-calling) ·
 [Why a hand-written Spring transport](#why-a-hand-written-spring-transport) ·
 [Threads](#threads) · [Library behavior](#library-behavior)
+
+## The path of a request
+
+A request walks the [Architecture](../architecture.md) diagram left to right:
+
+- **A2A client**, the caller, reads amex-agent's Agent Card, checks it offers the skill, and asks
+  for a billing month, for example `{"month": "2026-10"}`, sending its registered secret and the
+  signed-in person's Google ID token, so amex-agent knows which caller asks and for whom.
+- **nginx edge** spreads requests over the replicas; everything listed below runs inside the
+  replica that got the request.
+- **Caller filter** admits the call only when it carries a secret the agent issued to a registered
+  caller.
+- **Spring MVC transport**, hand-written and thin, reads the JSON-RPC call and streams the response
+  back as SSE.
+- **a2a-java request handler**, the official server library, turns the call into a task, kept in
+  **Redis** so a task paused by one replica can be continued by any, and runs the executor for it.
+- **Executor** is this repo's card work: verify the person's token against **Google public keys**,
+  have the **PDF parser** read that month's statement from the person's own folder in the
+  **statements root**, and have the **Merchant categorizer** label the merchants, asking the
+  **LLM** (Anthropic's or OpenAI's) only about merchants this replica has not seen. The charges
+  stream back along the same path in batches, each with a category such as `groceries` or
+  `insurance`. When the statement is not loaded yet, the executor leaves the task open and asks for
+  it; once the person has loaded the file, the caller says "continue" and the same task finishes.
+  A token that has expired pauses the task the same way until the person signs in again.
+
+The same path in time, inside one replica:
 
 ```mermaid
 sequenceDiagram

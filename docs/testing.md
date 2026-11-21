@@ -6,7 +6,7 @@ replicas, through the a2a-java client. `tools/validate.sh` runs the packaged jar
 a2a-sdk client, a second implementation of the protocol. The official A2A conformance suite checks
 the transport against the protocol itself. None needs a model API key, and none reaches Google: the
 tests sign their own tokens with a key they generate. This page details the tests behind
-[Development](development.md#backend-tests).
+[Development & deployment](development.md#backend-tests).
 
 **Contents:** [Running](#running) · [Unit](#unit) · [Integration](#integration) ·
 [Client-side validation](#client-side-validation) · [Conformance](#conformance) · [CI](#ci)
@@ -44,6 +44,9 @@ Each test class mirrors the class it tests. What the unit layer pins, by area:
   pause, the JSON-RPC error codes, and a caller that leaves mid-stream releasing its thread.
 - **Startup.** Each wrong required setting fails naming the variable, and each Spring profile boots
   with the classifier and filters it is meant to have.
+- **The API document.** `ApiDocTest` reads every route the agent's controllers declare and fails,
+  naming the route, when [API endpoints](api.md) leaves one out or names one no controller
+  declares.
 
 ## Integration
 

@@ -225,10 +225,7 @@ Every A2A call carries the contract's two credentials, and the card says so (see
   pauses in `TASK_STATE_AUTH_REQUIRED` (see [Pauses and resume](#pauses-and-resume)) so the caller
   can have the person sign in again and continue the same task.
 
-The statements page's own API, `/api/statements`, takes the person's token alone, issued to this
-agent's own client (`APP_AUTH_CLIENT_ID`); without an acceptable one it answers 401 with a problem
-document. `GET /.well-known/agent-card.json`, `GET /actuator/health`, `/statements.html` and
-`GET /api/auth/config` are open.
+The statements page's routes and which routes are open are in [API endpoints](api.md).
 
 With `APP_A2A_AUTH_REQUIRED=false` neither credential is read, the card declares no security
 scheme, and every request is for the one person `anonymous`. The conformance suite runs this way

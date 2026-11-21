@@ -119,8 +119,22 @@ tools are listed in [scripts/tools/README.md](scripts/tools/README.md).
 
 ## Details
 
-- [Architecture](docs/architecture.md) — the parts, the boundaries and a page per subsystem
+- [Architecture](docs/architecture.md) — the Compose services, the boundaries, a summary per
+  subsystem, the edge on EC2, storage and the codebase
+- [API endpoints](docs/api.md) — every route of the agent, who may call it and what it answers
+- [Workers' responsibilities and flows](docs/workers.md) — the lease sweep each replica runs
 - [A2A contract](docs/a2a-contract.md) — what amex-agent puts on the wire for the shared skill
+- [Request flow](docs/architecture/request-flow.md) — a request through the stack and inside a
+  replica: the credentials, the transport and its threads
+- [Statements](docs/architecture/statements.md) — the folder per person, how the Amex PDF is
+  read, and the statements page
+- [Categorizer](docs/architecture/categorizer.md) — the merchant keys, the prompt and the
+  providers
+- [Scaling](docs/architecture/scaling.md) — what the replicas guarantee and the edge service
+- [Design patterns](docs/design-patterns.md) — the two halves of the code, the layers of the
+  card pipeline and what each package holds
+- [Data model](docs/data-model.md) — every Redis key, the statements root, the callers registry
+  and the merchant categories
 - [Sign-in](docs/sign-in.md) — setting up the Google side of both sign-ins
 - [Development & deployment](docs/development.md) — local setup, tests, the scripts, the EC2
   deployment and the gotchas

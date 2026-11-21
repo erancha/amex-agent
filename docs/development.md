@@ -7,7 +7,8 @@ describes what the scripts run. Each script's header comment is its full documen
 
 **Contents:** [Working copy location](#working-copy-location) · [Configuration](#configuration) ·
 [Backend tests](#backend-tests) · [Deployment scripts (scripts/)](#deployment-scripts-scripts) ·
-[Registering a caller](#registering-a-caller) · [Statements](#statements) ·
+[The EC2 stack](#the-ec2-stack) · [Registering a caller](#registering-a-caller) ·
+[Loading statements](#loading-statements) ·
 [Running the agent on the host](#running-the-agent-on-the-host) · [Gotchas](#gotchas)
 
 ## Working copy location
@@ -43,10 +44,23 @@ one of its secrets or email addresses, the license contact of `params.sh` except
 sets `core.hooksPath` to `.githooks`, whose `pre-commit` hook makes the same check on every
 commit's staged changes.
 
-The scripts export the three files into their shell before calling Compose, so a bare
-`docker compose` call has no settings. Compose hands each replica only the keys
-`docker-compose.yml` lists for it, and sets the in-container values itself: port 8020, the
-statements mount at `/statements`, the stack's Redis, and the callers registry as a secret.
+The agent reads every setting once, at startup. The scripts export the three files into their shell
+before calling Compose, so a bare `docker compose` call has no settings. Compose hands each replica
+only the keys `docker-compose.yml` lists for it, and sets the in-container values itself: port 8020,
+the statements mount at `/statements`, the stack's Redis, and the callers registry as a secret.
+
+On the EC2 target, `docker-compose.ec2.yml` sets `APP_AGENT_URL` to the stack's CloudFront
+address, so the card advertises the address callers reach there; every other setting is the same
+on both targets.
+
+A wrong required setting stops startup naming the variable, so a misconfigured agent never serves a
+single request. Secrets, the model and the statements folder have no default for the same reason: a
+guessed value would let the agent start and fail later, far from the cause.
+
+Two Spring profiles change the agent for tests only. `e2e` replaces the language model with a
+keyword table, so it needs no model or key ([Categorizer](architecture/categorizer.md#providers)).
+`tck` turns auth off and runs the conformance suite's scenario executor
+([Testing](testing.md#conformance)).
 
 ## Backend tests
 
@@ -75,21 +89,9 @@ Docker runs the stack; `deploy.sh` and `docker-helper.sh` stop when it is not re
   caller's operator registers this agent with: its name, the advertised A2A URL and the
   statements page's URL.
 - `deploy.sh --ec2` — deploys to an EC2 instance in the account of `aws-config.sh`, and needs the
-  AWS CLI, `ssh` and `curl`. The stack is a host, with an instance of its own, while
-  `EC2_HOST_STACK` of `params.sh` is blank. Set to another Docker Compose repo's host stack, it is a
-  guest on that instance, which is deployed first from its repo; `aws-config.sh` then names that
-  stack's account and region, since a guest's stacks import the host stack's exports
-  ([ADR 0007](adr/0007-any-docker-repo-can-host-the-instance.md)).
-  It creates or updates this repo's stack of [`template-ec2.yaml`](../scripts/template-ec2.yaml) (a
-  port on the instance and a CloudFront
-  distribution), builds the images here for ARM, loads them into the instance's Docker daemon over
-  SSH and starts the stack there. It prints the CloudFront address, which the card advertises and
-  which is the statements page's address, to hand to the callers' operators and to register with
-  Google ([Sign-in](sign-in.md#setting-up-google)). The git branch selects the stack: `main` deploys
-  `amex-agent`, any other branch `amex-agent-fb`, a guest on the host's `-fb` instance; an exported
-  `STACK_NAME` wins. Every deploy, host or guest, also makes sure the instance has a 1 GB swap file
-  (`prepare_ec2_host` in `lib/ec2.sh`), so a burst beyond the instance's 2 GB of memory slows the
-  stacks instead of killing a container.
+  AWS CLI, `ssh` and `curl`; [The EC2 stack](#the-ec2-stack) has what it creates and runs there.
+  It prints the CloudFront address to register with Google
+  ([Sign-in](sign-in.md#setting-up-google)) and to hand to the callers' operators.
 - [`docker-helper.sh`](../scripts/docker-helper.sh) — `--stop [--volumes]`,
   `--logs [-e] [service...]` or `--ps` for the stack; `--volumes` also drops the paused tasks
   held in the Redis volume, and on EC2 the statements volume. With `--ec2` as its first argument
@@ -121,6 +123,37 @@ The IAM user of `aws-config.sh` needs to create and delete the stack's resources
 rule, and `ec2-instance-connect:SendSSHPublicKey` for the SSH connection. No IAM user has these
 by default; an administrator has them all.
 
+## The EC2 stack
+
+`./scripts/deploy.sh --ec2` runs the same Compose stack on an EC2 instance, behind a CloudFront
+distribution of its own ([ADR 0006](adr/0006-guest-on-loan-simulators-ec2-instance.md)), as a
+stack of the shared CloudFormation template, [`template-ec2.yaml`](../scripts/template-ec2.yaml),
+that hosts the instance or joins another Docker Compose repo's as a guest.
+
+- **The stack.** The template, shared by every Docker Compose repo, opens
+  the edge's port in the host's security group to CloudFront's servers alone and points the
+  distribution at the instance. TLS ends at CloudFront; the hop to the instance is plain HTTP.
+- **What differs on the instance** is in `docker-compose.ec2.yml`: images built for ARM, the edge
+  published on the instance's address, the `statements` volume in place of this machine's folder,
+  and services that start again with the instance.
+- **Nothing of the deployer's machine is mounted.** The images are built there and loaded into
+  the instance's Docker daemon over SSH, the edge's with `nginx/default.conf` built in, and
+  Compose runs there against that daemon. The callers registry reaches each replica as a Compose
+  secret, which Compose writes into the container through the Docker API, on both targets alike.
+- **Addresses.** The Agent Card advertises the CloudFront address, which is also the statements
+  page's. A caller on the same instance, such as home-finance-agent, fetches the card at
+  `http://host.docker.internal:8020` and then calls the advertised address.
+
+The stack is a host, with an instance of its own, while `EC2_HOST_STACK` of `params.sh` is blank.
+Set to another Docker Compose repo's host stack, it is a guest on that instance, which is deployed
+first from its repo; `aws-config.sh` then names that stack's account and region, since a guest's
+stacks import the host stack's exports
+([ADR 0007](adr/0007-any-docker-repo-can-host-the-instance.md)). The git branch selects the
+stack: `main` deploys `amex-agent`, any other branch `amex-agent-fb`, a guest on the host's `-fb`
+instance; an exported `STACK_NAME` wins. Every deploy, host or guest, also makes sure the instance
+has a 1 GB swap file (`prepare_ec2_host` in `lib/ec2.sh`), so a burst beyond the instance's 2 GB
+of memory slows the stacks instead of killing a container.
+
 ## Registering a caller
 
 A program that calls the A2A skill is registered by its name and the Google client id of its own
@@ -138,7 +171,7 @@ prints. A caller calls the URL the card advertises, `APP_AGENT_URL`: on this mac
 `http://host.docker.internal:8020`, which a caller running in Docker here reaches, since
 `localhost` there is the caller's own container.
 
-## Statements
+## Loading statements
 
 Download each monthly statement PDF from the Amex site and load it on the statements page,
 http://localhost:8020/statements.html on this machine or the CloudFront address on EC2: sign in
