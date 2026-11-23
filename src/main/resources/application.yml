@@ -25,6 +25,13 @@ spring:
     import: optional:file:${APP_A2A_CALLERS_FILE:./allowed-callers.yaml}
   # The statements page uploads one statement PDF at a time; a real one is about 0.5 MB.
   # Parsing is lazy so an oversized upload reaches the statements endpoint's error handling.
+  # A browser checks the statements page and its files again on every load, so an edit shows at
+  # once.
+  web:
+    resources:
+      cache:
+        cachecontrol:
+          no-cache: true
   servlet:
     multipart:
       max-file-size: 5MB

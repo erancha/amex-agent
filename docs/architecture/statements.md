@@ -49,6 +49,14 @@ only and sends it as the bearer token of every API call; a 401 brings the sign-i
 Each route the page calls, and what it answers, is in
 [API endpoints](../api.md#the-statements-page).
 
+Signed out, the page shows one landing card, the same as the author's other apps that sign in with
+Google: the agent's name under the tab's icon, a tagline, a short pitch and three numbered steps, a
+"More" toggle that adds the details, and the sign-in area. Under the card, links invite a friend on
+WhatsApp and open the source on GitHub. The card's look is `src/main/resources/static/landing.css`,
+a byte for byte copy of loan-simulator's stylesheet, so the pages cannot drift apart. Google's
+script draws its own Sign in with Google button, which signs the person in; it lies transparent over
+the card's shared button and at its size, so the click lands on Google's button.
+
 An upload is refused when it is not a PDF, does not parse as a statement, or is for a month another
 file already covers; a statement already loaded is not replaced, so the person removes the old file
 first. Every check runs before the file becomes visible, and the file is stored under the download

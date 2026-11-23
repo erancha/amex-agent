@@ -83,3 +83,9 @@ is in testing mode, Google signs in nobody else and shows an "access blocked" pa
 allow-list in the agent's code, so adding or removing a person is done in the console, under
 **Audience → Test users**. An A2A call is admitted for a registered caller only, and for the
 people that caller's own Google app signs in.
+
+The statements page explains signing in with Google under its sign-in button: the
+toggle "Why sign in with Google?" opens a panel saying that Google approves the sign-in and
+gives amex-agent only who the person is, that the person can disconnect amex-agent in their
+Google account's settings, and that amex-agent stores no passwords, with a link to Google's own
+help page.

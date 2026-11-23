@@ -68,7 +68,7 @@ class CallerSecretFilterTest {
     for (String[] open : new String[][] {{"GET", "/.well-known/agent-card.json"},
         {"GET", "/actuator/health"}, {"GET", "/statements.html"}, {"GET", "/api/statements"},
         {"POST", "/api/statements"}, {"DELETE", "/api/statements/2026-10.pdf"},
-        {"GET", "/api/auth/config"}}) {
+        {"GET", "/api/auth/config"}, {"GET", "/landing.css"}, {"GET", "/favicon.svg"}}) {
       assertThat(call(open[0], open[1], null, null).reached()).as(open[1]).isTrue();
     }
   }

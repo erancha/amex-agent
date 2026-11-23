@@ -43,6 +43,8 @@ import org.springframework.web.multipart.MultipartFile;
 public class StatementsEndpoint {
   /** The statements page's path on the agent's base URL, served from static/statements.html. */
   public static final String PAGE = "/statements.html";
+  /** The page's signed-out landing stylesheet and the tab's icon, static files beside it. */
+  public static final List<String> PAGE_ASSETS = List.of("/landing.css", "/favicon.svg");
   public static final String API = "/api/statements";
   private static final Logger log = LoggerFactory.getLogger(StatementsEndpoint.class);
   private static final String AUTHORIZATION = "Authorization";
