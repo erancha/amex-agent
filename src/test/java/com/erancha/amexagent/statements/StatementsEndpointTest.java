@@ -155,10 +155,10 @@ class StatementsEndpointTest {
         .contains("<main class=\"landing\" id=\"signin\" hidden>")
         .contains("<h1 class=\"app-heading\"><img class=\"app-icon\" src=\"favicon.svg\" alt=\"\">"
             + " amex-agent</h1>")
-        .contains("<p class=\"app-tagline\">").doesNotContain("app-version")
+        .contains("<p class=\"app-tagline landing-flash\">").doesNotContain("app-version")
         .contains("<ol class=\"landing-steps\">")
         .contains("<ul class=\"landing-details\" id=\"details\" hidden>")
-        .contains("<button type=\"button\" class=\"landing-more\" id=\"more\""
+        .contains("<button type=\"button\" class=\"landing-more landing-flash\" id=\"more\""
             + " aria-expanded=\"false\">More</button>")
         .contains("<button type=\"button\" class=\"sign-in-button\" tabindex=\"-1\">"
             + "<span class=\"sign-in-mark\" aria-hidden=\"true\">G</span>"
